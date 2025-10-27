@@ -1,10 +1,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/Quikmove/blockchain-uzd2/internal/config"
@@ -100,12 +101,12 @@ func (ws *Webserver) makeNewRouter() http.Handler {
 	return &router
 }
 
-func Run(b *crypto.Blockchain, c *config.Config) error {
+func Run(ctx context.Context, b *crypto.Blockchain, c *config.Config, started chan<- struct{}) error {
 	ws := &Webserver{b: b, config: c}
 	router := ws.makeNewRouter()
 
-	httpAddr := os.Getenv("PORT")
-	log.Println("Listening on ", httpAddr)
+	httpAddr := ws.config.Port
+	log.Printf("Listening on :%s", httpAddr)
 
 	s := &http.Server{
 		Addr:           ":" + httpAddr,
@@ -114,8 +115,34 @@ func Run(b *crypto.Blockchain, c *config.Config) error {
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
-	if err := s.ListenAndServe(); err != nil {
+	ln, err := net.Listen("tcp", ":"+httpAddr)
+	if err != nil {
 		return err
+	}
+	if started != nil {
+		close(started)
+	}
+
+	errChan := make(chan error, 1)
+	go func() {
+		err := s.Serve(ln)
+		errChan <- err
+	}()
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		log.Println("Shutting down web server...")
+		if err := s.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		if err := <-errChan; err != nil && err != http.ErrServerClosed {
+			return err
+		}
+	case err := <-errChan:
+		if err != nil && err != http.ErrServerClosed {
+			return err
+		}
 	}
 	return nil
 }
