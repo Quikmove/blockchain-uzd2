@@ -8,18 +8,18 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Quikmove/blockchain-uzd2/internal/blockchain"
 	"github.com/Quikmove/blockchain-uzd2/internal/config"
-	"github.com/Quikmove/blockchain-uzd2/internal/crypto"
 )
 
 type Webserver struct {
-	b      *crypto.Blockchain
+	b      *blockchain.Blockchain
 	config *config.Config
 }
 
 func (ws *Webserver) handleGetBlockchain(w http.ResponseWriter, r *http.Request) {
 	ws.b.ChainMutex.RLock()
-	chainCopy := append([]crypto.Block(nil), ws.b.Blocks...)
+	chainCopy := append([]blockchain.Block(nil), ws.b.Blocks...)
 	ws.b.ChainMutex.RUnlock()
 	bytes, err := json.MarshalIndent(chainCopy, "", "   ")
 	if err != nil {
@@ -30,7 +30,7 @@ func (ws *Webserver) handleGetBlockchain(w http.ResponseWriter, r *http.Request)
 }
 
 type Message struct {
-	Transactions crypto.Transactions
+	Transactions blockchain.Transactions
 }
 
 func respondWithJSON(w http.ResponseWriter, r *http.Request, code int, payload interface{}) {
@@ -62,14 +62,14 @@ func (ws *Webserver) handleWriteBlock(w http.ResponseWriter, r *http.Request) {
 	ws.b.ChainMutex.RUnlock()
 
 	type Result struct {
-		block crypto.Block
+		block blockchain.Block
 		err   error
 	}
 	ctx := r.Context()
 	resCh := make(chan Result, 1)
-	body := crypto.Body{Transactions: m.Transactions}
+	body := blockchain.Body{Transactions: m.Transactions}
 	go func() {
-		block, err := crypto.GenerateBlock(ctx, last, body, ws.config.Version, ws.config.Difficulty)
+		block, err := blockchain.GenerateBlock(ctx, last, body, ws.config.Version, ws.config.Difficulty)
 		resCh <- Result{block, err}
 	}()
 	select {
@@ -101,7 +101,7 @@ func (ws *Webserver) makeNewRouter() http.Handler {
 	return &router
 }
 
-func Run(ctx context.Context, b *crypto.Blockchain, c *config.Config, started chan<- struct{}) error {
+func Run(ctx context.Context, b *blockchain.Blockchain, c *config.Config, started chan<- struct{}) error {
 	ws := &Webserver{b: b, config: c}
 	router := ws.makeNewRouter()
 
