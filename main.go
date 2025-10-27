@@ -18,8 +18,8 @@ import (
 )
 
 type Block struct {
-	Header Header
-	Body   Body
+	Header Header `json:"header"`
+	Body   Body   `json:"body"`
 }
 type Hash32 [32]byte
 
@@ -32,15 +32,15 @@ func (h Hash32) MarshalJSON() ([]byte, error) {
 }
 
 type Header struct {
-	Version    uint32
-	Timestamp  uint32
-	PrevHash   Hash32
-	MerkleRoot Hash32
-	Difficulty uint32
-	Nonce      uint32
+	Version    uint32 `json:"version"`
+	Timestamp  uint32 `json:"timestamp"`
+	PrevHash   Hash32 `json:"prev_hash"`
+	MerkleRoot Hash32 `json:"merkle_root"`
+	Difficulty uint32 `json:"difficulty"`
+	Nonce      uint32 `json:"nonce"`
 }
 type Body struct {
-	Transactions Transactions
+	Transactions Transactions `json:"transactions"`
 }
 
 func (h Header) Serialize() []byte {
@@ -72,10 +72,10 @@ func (b Body) MerkleRootHash() Hash32 {
 }
 
 type Transaction struct {
-	TxID     Hash32
-	Sender   Hash32
-	Receiver Hash32
-	Amount   uint32
+	TxID     Hash32 `json:"tx_id"`
+	Sender   Hash32 `json:"sender"`
+	Receiver Hash32 `json:"receiver"`
+	Amount   uint32 `json:"amount"`
 }
 
 func (t Transaction) Hash() Hash32 {
@@ -98,11 +98,8 @@ var ChainMutex sync.RWMutex
 var Blockchain []Block
 
 func HashBytes(bytes []byte) Hash32 {
-	h := sha256.New()
+	return sha256.Sum256(bytes)
 
-	h.Write(bytes)
-
-	return Hash32(h.Sum(nil))
 }
 
 func HashString(str string) Hash32 {
@@ -173,7 +170,7 @@ func generateBlock(oldBlock Block, body Body) (Block, error) {
 
 	t := time.Now()
 
-	newBlock.Header.Timestamp = uint32(t.UnixNano())
+	newBlock.Header.Timestamp = uint32(t.Unix())
 	newBlock.Header.PrevHash = calculateHash(oldBlock)
 	newBlock.Body = body
 
@@ -320,7 +317,7 @@ func (u Users) GenerateFunds(low, high uint32) (Transactions, error) {
 
 		// coinbase transaction creates an unspent output (UTXO) for the user
 		tx := Transaction{
-			TxID:     HashString("coinbase" + usr.PublicKey.HexString() + strconv.FormatUint(uint64(amount), 10) + strconv.FormatInt(time.Now().UnixNano(), 10)),
+			TxID:     HashString("coinbase" + usr.PublicKey.HexString() + strconv.FormatUint(uint64(amount), 10) + strconv.FormatInt(time.Now().Unix(), 10)),
 			Sender:   HashString("coinbase"),
 			Receiver: usr.PublicKey,
 			Amount:   amount,
@@ -329,7 +326,7 @@ func (u Users) GenerateFunds(low, high uint32) (Transactions, error) {
 		txs = append(txs, tx)
 
 		// small pause to vary timestamp-derived seeds
-		time.Sleep(time.Millisecond)
+		time.Sleep(time.Second)
 	}
 
 	return txs, nil
@@ -342,7 +339,7 @@ func main() {
 	hashDifficulty := uint32(3)
 	func() {
 		t := time.Now()
-		genesisBlock := Block{Header{1, uint32(t.UnixNano()), Hash32{}, Hash32{}, hashDifficulty, 1}, Body{Transactions: Transactions{}}}
+		genesisBlock := Block{Header{1, uint32(t.Unix()), Hash32{}, Hash32{}, hashDifficulty, 1}, Body{Transactions: Transactions{}}}
 		Blockchain = append(Blockchain, genesisBlock)
 	}()
 	log.Fatal(run())
