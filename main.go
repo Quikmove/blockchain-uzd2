@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/Quikmove/blockchain-uzd2/internal/api"
+	"github.com/Quikmove/blockchain-uzd2/internal/blockchain"
 	"github.com/Quikmove/blockchain-uzd2/internal/config"
-	"github.com/Quikmove/blockchain-uzd2/internal/crypto"
 	"github.com/joho/godotenv"
 )
 
@@ -64,25 +64,53 @@ import (
 //		return txs, nil
 //	}
 
+func fileToList(path string) []string {
+	data, err := os.Open(path)
+	if err != nil {
+		log.Fatalf("Failed to open file: %v", err)
+	}
+	defer data.Close()
+
+	// read by line and append
+	var list []string
+	for {
+		var line string
+		_, err := fmt.Fscanln(data, &line)
+		if err != nil {
+			break
+		}
+		list = append(list, line)
+	}
+	return list
+}
 func main() {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal(err)
 	}
-	blockchain := crypto.NewBlockchain()
+	nameList := fileToList("assets/name_list.txt")
+	users := blockchain.GenerateUsers(nameList, 3)
+	fundTransactions, err := blockchain.GenerateFundTransactionsForUsers(users, 10, 30)
+	if err != nil {
+		log.Fatalf("Failed to generate fund transactions: %v", err)
+	}
+
+	bch := blockchain.NewBlockchain()
 	config := config.LoadConfig()
 	ctx := context.Background()
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	func() {
-		t := time.Now()
-		genesisBlock := crypto.Block{Header: crypto.Header{Version: config.Version, Timestamp: uint32(t.Unix()), PrevHash: crypto.Hash32{}, MerkleRoot: crypto.Hash32{}, Difficulty: config.Difficulty, Nonce: 1}, Body: crypto.Body{Transactions: crypto.Transactions{}}}
-		blockchain.Blocks = append(blockchain.Blocks, genesisBlock)
+		genesisBlock, err := blockchain.CreateGenesisBlock(ctx, fundTransactions, config)
+		if err != nil {
+			log.Fatalf("Failed to create genesis block: %v", err)
+		}
+		bch.Blocks = append(bch.Blocks, genesisBlock)
 	}()
 	errChan := make(chan error, 1)
 	started := make(chan struct{})
 	go func() {
-		err := api.Run(ctx, blockchain, config, started)
+		err := api.Run(ctx, bch, config, started)
 		errChan <- err
 	}()
 
