@@ -2,14 +2,18 @@ package crypto
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+var userCount atomic.Uint32
 
 type Blockchain struct {
 	Blocks     []Block
@@ -106,14 +110,32 @@ type UTXO struct {
 }
 
 type User struct {
+	Id        uint32
 	Name      string
+	CreatedAt uint32
 	PublicKey Hash32
 }
+
+func NewUser(name string) *User {
+	id := userCount.Add(1)
+	created := uint32(time.Now().Unix())
+
+	data := fmt.Sprintf("%d:%s:%d", id, name, time.Now().UnixNano())
+
+	pk := HashString(data)
+
+	return &User{
+		Id:        id,
+		Name:      name,
+		CreatedAt: created,
+		PublicKey: pk,
+	}
+}
+
 type Transactions []Transaction
 
 func HashBytes(bytes []byte) Hash32 {
 	return sha256.Sum256(bytes)
-
 }
 
 func HashString(str string) Hash32 {
@@ -246,16 +268,52 @@ func (bc *Blockchain) ValidateBlock(b Block) error {
 	}
 	return nil
 }
+func (h Header) FindValidNonce(ctx context.Context) (uint32, Hash32, error) {
+	if h.MerkleRoot == (Hash32{}) {
+		return 0, Hash32{}, errors.New("merkle root not set")
+	}
 
-func GenerateBlock(oldBlock Block, body Body) (Block, error) {
-	var newBlock Block
+	var nonce uint32
 
+	for {
+		select {
+		case <-ctx.Done():
+			return 0, Hash32{}, ctx.Err()
+		default:
+			h.Nonce = nonce
+			hash := h.Hash()
+			if IsHashValid(hash, h.Difficulty) {
+				return nonce, hash, nil
+			}
+			nonce++
+
+			if nonce == 0 {
+				return 0, Hash32{}, errors.New("nonce overflow")
+			}
+		}
+	}
+}
+
+func GenerateBlock(ctx context.Context, oldBlock Block, body Body, version uint32, difficulty uint32) (Block, error) {
+
+	var newHeader Header
 	t := time.Now()
 
-	newBlock.Header.Timestamp = uint32(t.Unix())
-	newBlock.Header.PrevHash = CalculateHash(oldBlock)
-	newBlock.Body = body
+	newHeader.Version = version
+	newHeader.PrevHash = CalculateHash(oldBlock)
+	newHeader.Timestamp = uint32(t.Unix())
+	newHeader.MerkleRoot = body.MerkleRootHash()
+	newHeader.Difficulty = difficulty
+	nonce, _, err := newHeader.FindValidNonce(ctx)
+	if err != nil {
+		return Block{}, err
+	}
+	newHeader.Nonce = nonce
+
+	newBlock := Block{
+		Header: newHeader,
+		Body:   body,
+	}
 
 	return newBlock, nil
-
 }
