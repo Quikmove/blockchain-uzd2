@@ -7,11 +7,13 @@ import (
 	"os"
 	"time"
 
+	"github.com/Quikmove/blockchain-uzd2/internal/config"
 	"github.com/Quikmove/blockchain-uzd2/internal/crypto"
 )
 
 type Webserver struct {
-	b *crypto.Blockchain
+	b      *crypto.Blockchain
+	config *config.Config
 }
 
 func (ws *Webserver) handleGetBlockchain(w http.ResponseWriter, r *http.Request) {
@@ -64,9 +66,9 @@ func (ws *Webserver) handleWriteBlock(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	resCh := make(chan Result, 1)
-
+	body := crypto.Body{Transactions: m.Transactions}
 	go func() {
-		block, err := crypto.GenerateBlock(last, crypto.Body{})
+		block, err := crypto.GenerateBlock(ctx, last, body, ws.config.Version, ws.config.Difficulty)
 		resCh <- Result{block, err}
 	}()
 	select {
@@ -98,8 +100,8 @@ func (ws *Webserver) makeNewRouter() http.Handler {
 	return &router
 }
 
-func Run(b *crypto.Blockchain) error {
-	ws := &Webserver{b: b}
+func Run(b *crypto.Blockchain, c *config.Config) error {
+	ws := &Webserver{b: b, config: c}
 	router := ws.makeNewRouter()
 
 	httpAddr := os.Getenv("PORT")

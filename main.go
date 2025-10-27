@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Quikmove/blockchain-uzd2/internal/api"
+	"github.com/Quikmove/blockchain-uzd2/internal/config"
 	"github.com/Quikmove/blockchain-uzd2/internal/crypto"
 	"github.com/joho/godotenv"
 )
@@ -60,16 +61,16 @@ import (
 //	}
 
 func main() {
-	blockchain := crypto.NewBlockchain()
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal(err)
 	}
-	hashDifficulty := uint32(3)
+	blockchain := crypto.NewBlockchain()
+	config := config.LoadConfig()
 	func() {
 		t := time.Now()
-		genesisBlock := crypto.Block{Header: crypto.Header{Version: 1, Timestamp: uint32(t.Unix()), PrevHash: crypto.Hash32{}, MerkleRoot: crypto.Hash32{}, Difficulty: hashDifficulty, Nonce: 1}, Body: crypto.Body{Transactions: crypto.Transactions{}}}
+		genesisBlock := crypto.Block{Header: crypto.Header{Version: config.Version, Timestamp: uint32(t.Unix()), PrevHash: crypto.Hash32{}, MerkleRoot: crypto.Hash32{}, Difficulty: config.Difficulty, Nonce: 1}, Body: crypto.Body{Transactions: crypto.Transactions{}}}
 		blockchain.Blocks = append(blockchain.Blocks, genesisBlock)
 	}()
-	log.Fatal(api.Run(blockchain))
+	log.Fatal(api.Run(blockchain, config))
 }
