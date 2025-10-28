@@ -2,6 +2,7 @@ package blockchain
 
 import (
 	"math/rand"
+	"sort"
 )
 
 // go through users and select a random amount between 100 and 1000 to get transferred as UTXOs in exponential sizes: 1, 2, 4, 8, 16, etc.
@@ -34,6 +35,9 @@ func GenerateFundTransactionsForUsers(users []User, low, high uint32) (Transacti
 				remaining = 0
 			}
 		}
+		sort.Slice(utxos, func(i, j int) bool {
+			return utxos[i] < utxos[j]
+		})
 		var outputs []TxOutput
 		for _, v := range utxos {
 			txOut := TxOutput{
