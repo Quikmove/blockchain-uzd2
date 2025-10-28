@@ -16,7 +16,7 @@ func LoadConfig() *Config {
 	difficulty := os.Getenv("BLOCK_DIFFICULTY")
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = ":8080"
+		port = "8080"
 	}
 	parsedVersion, err := strconv.ParseUint(version, 10, 32)
 	if err != nil {
