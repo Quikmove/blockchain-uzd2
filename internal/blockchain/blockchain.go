@@ -11,12 +11,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Quikmove/blockchain-uzd2/internal/config"
 )
 
 var userCount atomic.Uint32
 
 type Blockchain struct {
-	Blocks     []Block
+	blocks     []Block
 	ChainMutex *sync.RWMutex
 	UTXOSet    map[Outpoint]UTXO
 	UTXOMutex  *sync.RWMutex
@@ -24,11 +26,62 @@ type Blockchain struct {
 
 func NewBlockchain() *Blockchain {
 	return &Blockchain{
-		Blocks:     []Block{},
+		blocks:     []Block{},
 		ChainMutex: &sync.RWMutex{},
 		UTXOSet:    make(map[Outpoint]UTXO),
 		UTXOMutex:  &sync.RWMutex{},
 	}
+}
+
+func (bc *Blockchain) GetBlock(index int) (Block, error) {
+	bc.ChainMutex.RLock()
+	defer bc.ChainMutex.RUnlock()
+	if index < 0 || index >= len(bc.blocks) {
+		return Block{}, errors.New("block index out of range")
+	}
+	return bc.blocks[index], nil
+}
+func (bc *Blockchain) GetLatestBlock() (Block, error) {
+	bc.ChainMutex.RLock()
+	defer bc.ChainMutex.RUnlock()
+	if len(bc.blocks) == 0 {
+		return Block{}, errors.New("blockchain is empty")
+	}
+	return bc.blocks[len(bc.blocks)-1], nil
+}
+func (bc *Blockchain) AddBlock(b Block) error {
+	bc.ChainMutex.Lock()
+	defer bc.ChainMutex.Unlock()
+	if !bc.IsBlockValid(b) {
+		return errors.New("invalid block")
+	}
+	bc.blocks = append(bc.blocks, b)
+	return nil
+}
+func (bc *Blockchain) Blocks() []Block {
+	bc.ChainMutex.RLock()
+	defer bc.ChainMutex.RUnlock()
+	var blocksCopy = make([]Block, len(bc.blocks))
+	copy(blocksCopy, bc.blocks)
+	return blocksCopy
+}
+func (bc *Blockchain) Len() int {
+	bc.ChainMutex.RLock()
+	defer bc.ChainMutex.RUnlock()
+	return len(bc.blocks)
+}
+func InitBlockchainWithFunds(low, high uint32, users []User, cfg *config.Config) *Blockchain {
+	fundTransactions, err := GenerateFundTransactionsForUsers(users, low, high)
+	if err != nil {
+		panic(err)
+	}
+	genesisBlock, err := CreateGenesisBlock(context.Background(), fundTransactions, cfg)
+	if err != nil {
+		panic(err)
+	}
+	blockchain := NewBlockchain()
+	blockchain.blocks = append(blockchain.blocks, genesisBlock)
+	return blockchain
 }
 
 type Hash32 [32]byte
@@ -109,7 +162,7 @@ func IsHashValid(hash Hash32, diff uint32) bool {
 	return true
 }
 func (b *Blockchain) IsBlockValid(newBlock Block) bool {
-	oldBlock := b.Blocks[len(b.Blocks)-1]
+	oldBlock := b.blocks[len(b.blocks)-1]
 	if CalculateHash(oldBlock) != newBlock.Header.PrevHash {
 		return false
 	}
@@ -126,7 +179,7 @@ func (b *Blockchain) IsBlockValid(newBlock Block) bool {
 
 func (bc *Blockchain) ValidateBlock(b Block) error {
 	bc.ChainMutex.RLock()
-	height := len(bc.Blocks)
+	height := len(bc.blocks)
 	bc.ChainMutex.RUnlock()
 
 	isGenesis := height == 0

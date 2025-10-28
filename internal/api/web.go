@@ -13,14 +13,12 @@ import (
 )
 
 type Webserver struct {
-	b      *blockchain.Blockchain
-	config *config.Config
+	b   *blockchain.Blockchain
+	cfg *config.Config
 }
 
 func (ws *Webserver) handleGetBlockchain(w http.ResponseWriter, r *http.Request) {
-	ws.b.ChainMutex.RLock()
-	chainCopy := append([]blockchain.Block(nil), ws.b.Blocks...)
-	ws.b.ChainMutex.RUnlock()
+	chainCopy := ws.b.Blocks()
 	bytes, err := json.MarshalIndent(chainCopy, "", "   ")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -52,14 +50,15 @@ func (ws *Webserver) handleWriteBlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
-	ws.b.ChainMutex.RLock()
-	if len(ws.b.Blocks) == 0 {
-		ws.b.ChainMutex.RUnlock()
+	if ws.b.Len() == 0 {
 		respondWithJSON(w, r, http.StatusInternalServerError, "No genesis block")
 		return
 	}
-	last := ws.b.Blocks[len(ws.b.Blocks)-1]
-	ws.b.ChainMutex.RUnlock()
+	last, err := ws.b.GetLatestBlock()
+	if err != nil {
+		respondWithJSON(w, r, http.StatusInternalServerError, "Failed to get latest block")
+		return
+	}
 
 	type Result struct {
 		block blockchain.Block
@@ -69,7 +68,7 @@ func (ws *Webserver) handleWriteBlock(w http.ResponseWriter, r *http.Request) {
 	resCh := make(chan Result, 1)
 	body := blockchain.Body{Transactions: m.Transactions}
 	go func() {
-		block, err := blockchain.GenerateBlock(ctx, last, body, ws.config.Version, ws.config.Difficulty)
+		block, err := blockchain.GenerateBlock(ctx, last, body, ws.cfg.Version, ws.cfg.Difficulty)
 		resCh <- Result{block, err}
 	}()
 	select {
@@ -81,14 +80,10 @@ func (ws *Webserver) handleWriteBlock(w http.ResponseWriter, r *http.Request) {
 			respondWithJSON(w, r, http.StatusInternalServerError, m)
 			return
 		}
-		ws.b.ChainMutex.Lock()
-		if ws.b.IsBlockValid(newBlock) {
-			ws.b.Blocks = append(ws.b.Blocks, newBlock)
-			ws.b.ChainMutex.Unlock()
+		if err := ws.b.AddBlock(newBlock); err == nil {
 			respondWithJSON(w, r, http.StatusCreated, newBlock)
 			return
 		}
-		ws.b.ChainMutex.Unlock()
 		respondWithJSON(w, r, http.StatusConflict, "Block invalid or chain advanced")
 	}
 }
@@ -102,10 +97,10 @@ func (ws *Webserver) makeNewRouter() http.Handler {
 }
 
 func Run(ctx context.Context, b *blockchain.Blockchain, c *config.Config, started chan<- struct{}) error {
-	ws := &Webserver{b: b, config: c}
+	ws := &Webserver{b: b, cfg: c}
 	router := ws.makeNewRouter()
 
-	httpAddr := ws.config.Port
+	httpAddr := ws.cfg.Port
 	log.Printf("Listening on :%s", httpAddr)
 
 	s := &http.Server{

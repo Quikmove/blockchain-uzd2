@@ -90,23 +90,16 @@ func main() {
 	}
 	nameList := fileToList("assets/name_list.txt")
 	users := blockchain.GenerateUsers(nameList, 3)
-	fundTransactions, err := blockchain.GenerateFundTransactionsForUsers(users, 10, 30)
-	if err != nil {
-		log.Fatalf("Failed to generate fund transactions: %v", err)
-	}
-
-	bch := blockchain.NewBlockchain()
+	var bch *blockchain.Blockchain
 	config := config.LoadConfig()
 	ctx := context.Background()
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	func() {
-		genesisBlock, err := blockchain.CreateGenesisBlock(ctx, fundTransactions, config)
-		if err != nil {
-			log.Fatalf("Failed to create genesis block: %v", err)
-		}
-		bch.Blocks = append(bch.Blocks, genesisBlock)
-	}()
+
+	bch = blockchain.InitBlockchainWithFunds(100, 1000000, users, config)
+	if err != nil {
+		log.Fatalf("Failed to create genesis block: %v", err)
+	}
 	errChan := make(chan error, 1)
 	started := make(chan struct{})
 	go func() {
