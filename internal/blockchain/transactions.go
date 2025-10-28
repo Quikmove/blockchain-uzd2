@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+
+	"github.com/Quikmove/blockchain-uzd2/internal/merkletree"
 )
 
 type Outpoint struct {
@@ -20,9 +22,9 @@ type TxOutput struct {
 	Value uint32
 }
 type Transaction struct {
-	Inputs  []TxInput  `json:"inputs"`
-	Outputs []TxOutput `json:"outputs"`
-	TxID    Hash32     `json:"tx_id"`
+	TxID    Hash32     `json:"txid"`
+	Inputs  []TxInput  `json:"vin"`
+	Outputs []TxOutput `json:"vout"`
 }
 
 type UTXO struct {
@@ -59,16 +61,38 @@ func (t Transaction) Hash() Hash32 {
 	h2 := sha256.Sum256(h1[:])
 	return Hash32(h2)
 }
-func MerkleRootHash(t Transactions) Hash32 {
+func merkleRootHash(t Transactions) Hash32 {
 	if len(t) == 0 {
 		return Hash32{}
 	}
+	hashes := make([]merkletree.Hash32, 0, len(t))
+	for _, tx := range t {
+		h := tx.Hash()
+		var mh merkletree.Hash32
+		copy(mh[:], h[:])
+		hashes = append(hashes, mh)
+	}
+	mt := merkletree.NewMerkleTree(hashes)
+	return Hash32(mt.Root.Val)
+}
 
+// Deprecated: use merkleRootHash instead
+func _merkleRootHash(t Transactions) Hash32 {
+	if len(t) == 0 {
+		return Hash32{}
+	}
 	hashes := make([]Hash32, 0, len(t))
 	for _, tx := range t {
 		hashes = append(hashes, tx.Hash())
 	}
+	return _MerkleRootHash(hashes)
+}
 
+// Deprecated: use merkleRootHash instead
+func _MerkleRootHash(hashes []Hash32) Hash32 {
+	if len(hashes) == 0 {
+		return Hash32{}
+	}
 	for len(hashes) > 1 {
 		if len(hashes)%2 == 1 {
 			hashes = append(hashes, hashes[len(hashes)-1])
@@ -88,7 +112,6 @@ func MerkleRootHash(t Transactions) Hash32 {
 
 	return hashes[0]
 }
-
 func ValidateTransaction(tx Transaction) error {
 	if len(tx.Inputs) == 0 {
 		return errors.New("tx has no inputs")

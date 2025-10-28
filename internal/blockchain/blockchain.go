@@ -135,7 +135,7 @@ func reverse32(in Hash32) []byte {
 	return out
 }
 func (b Body) MerkleRootHash() Hash32 {
-	return MerkleRootHash(b.Transactions)
+	return merkleRootHash(b.Transactions)
 }
 
 type Transactions []Transaction
