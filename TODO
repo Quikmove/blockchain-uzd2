@@ -1,3 +1,6 @@
-* Decouple data layers
-* Move logic into a separate package
-* Create interface for Hasher to be able to replace with own hash implementation later.
+- [ ] Write tests for expected output
+- [ ] Decouple data layers
+- [ ] Create interface for Hasher to be able to replace with own hash implementation later.
+- [ ] Implement UTXO validation logic
+- [ ] Implement UTXO tracking
+- [x] Move logic into a separate package
