@@ -76,42 +76,6 @@ func merkleRootHash(t Transactions) Hash32 {
 	return Hash32(mt.Root.Val)
 }
 
-// Deprecated: use merkleRootHash instead
-func _merkleRootHash(t Transactions) Hash32 {
-	if len(t) == 0 {
-		return Hash32{}
-	}
-	hashes := make([]Hash32, 0, len(t))
-	for _, tx := range t {
-		hashes = append(hashes, tx.Hash())
-	}
-	return _MerkleRootHash(hashes)
-}
-
-// Deprecated: use merkleRootHash instead
-func _MerkleRootHash(hashes []Hash32) Hash32 {
-	if len(hashes) == 0 {
-		return Hash32{}
-	}
-	for len(hashes) > 1 {
-		if len(hashes)%2 == 1 {
-			hashes = append(hashes, hashes[len(hashes)-1])
-		}
-
-		next := make([]Hash32, 0, len(hashes)/2)
-		for i := 0; i < len(hashes); i += 2 {
-			left := hashes[i][:]
-			right := hashes[i+1][:]
-			concat := append(left, right...)
-			h1 := sha256.Sum256(concat)
-			h2 := sha256.Sum256(h1[:])
-			next = append(next, Hash32(h2))
-		}
-		hashes = next
-	}
-
-	return hashes[0]
-}
 func ValidateTransaction(tx Transaction) error {
 	if len(tx.Inputs) == 0 {
 		return errors.New("tx has no inputs")
