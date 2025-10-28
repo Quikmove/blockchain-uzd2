@@ -3,4 +3,5 @@
 - [ ] Create interface for Hasher to be able to replace with own hash implementation later.
 - [ ] Implement UTXO validation logic
 - [ ] Implement UTXO tracking
+- [ ] Create better API endpoints, hide transactions in general endpoint
 - [x] Move logic into a separate package
