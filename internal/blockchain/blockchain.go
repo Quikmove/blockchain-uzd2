@@ -50,19 +50,128 @@ func (bc *Blockchain) GetLatestBlock() (Block, error) {
 	return bc.blocks[len(bc.blocks)-1], nil
 }
 func (bc *Blockchain) AddBlock(b Block) error {
-	bc.ChainMutex.Lock()
-	defer bc.ChainMutex.Unlock()
+	bc.ChainMutex.RLock()
 	if !bc.IsBlockValid(b) {
+		bc.ChainMutex.RUnlock()
 		return errors.New("invalid block")
 	}
+	bc.ChainMutex.RUnlock()
+
+	if err := bc.ValidateBlockTransactions(b); err != nil {
+		return fmt.Errorf("block validation failed: %w", err)
+	}
+
+	bc.ChainMutex.Lock()
+	defer bc.ChainMutex.Unlock()
+
 	bc.blocks = append(bc.blocks, b)
+
+	bc.ScanBlockForUTXOs(b)
+
 	return nil
+}
+
+func (bc *Blockchain) ScanBlockForUTXOs(b Block) {
+	bc.UTXOMutex.Lock()
+	defer bc.UTXOMutex.Unlock()
+
+	for _, tx := range b.Body.Transactions {
+
+		if len(tx.Inputs) > 0 {
+			for _, input := range tx.Inputs {
+				delete(bc.UTXOSet, input.Prev)
+			}
+		}
+
+		txHash := tx.Hash()
+		for idx, output := range tx.Outputs {
+			outpoint := Outpoint{
+				TxID:  txHash,
+				Index: uint32(idx),
+			}
+			utxo := UTXO{
+				Out:   outpoint,
+				To:    output.To,
+				Value: output.Value,
+			}
+			bc.UTXOSet[outpoint] = utxo
+		}
+	}
+}
+
+func (bc *Blockchain) GetUTXO(outpoint Outpoint) (UTXO, bool) {
+	bc.UTXOMutex.RLock()
+	defer bc.UTXOMutex.RUnlock()
+	utxo, exists := bc.UTXOSet[outpoint]
+	return utxo, exists
+}
+
+func (bc *Blockchain) GetUTXOsForAddress(address Hash32) []UTXO {
+	bc.UTXOMutex.RLock()
+	defer bc.UTXOMutex.RUnlock()
+
+	var utxos []UTXO
+	for _, utxo := range bc.UTXOSet {
+		if utxo.To == address {
+			utxos = append(utxos, utxo)
+		}
+	}
+	return utxos
+}
+
+func (bc *Blockchain) GetBalance(address Hash32) uint32 {
+	utxos := bc.GetUTXOsForAddress(address)
+	var balance uint32
+	for _, utxo := range utxos {
+		balance += utxo.Value
+	}
+	return balance
 }
 func (bc *Blockchain) Blocks() []Block {
 	bc.ChainMutex.RLock()
 	defer bc.ChainMutex.RUnlock()
 	var blocksCopy = make([]Block, len(bc.blocks))
-	copy(blocksCopy, bc.blocks)
+
+	for i, b := range bc.blocks {
+		var bodyCopy Body
+		if len(b.Body.Transactions) > 0 {
+			bodyCopy.Transactions = make([]Transaction, len(b.Body.Transactions))
+			for j, tx := range b.Body.Transactions {
+				var inputs []TxInput
+				if len(tx.Inputs) > 0 {
+					inputs = make([]TxInput, len(tx.Inputs))
+					for k, in := range tx.Inputs {
+						sigCopy := make([]byte, len(in.Sig))
+						copy(sigCopy, in.Sig)
+						inputs[k] = TxInput{
+							Prev: Outpoint{
+								TxID:  in.Prev.TxID,
+								Index: in.Prev.Index,
+							},
+							Sig: sigCopy,
+						}
+					}
+				}
+
+				var outputs []TxOutput
+				if len(tx.Outputs) > 0 {
+					outputs = make([]TxOutput, len(tx.Outputs))
+					copy(outputs, tx.Outputs)
+				}
+				bodyCopy.Transactions[j] = Transaction{
+					TxID:    tx.TxID,
+					Inputs:  inputs,
+					Outputs: outputs,
+				}
+			}
+		} else {
+			bodyCopy.Transactions = nil
+		}
+		blocksCopy[i] = Block{
+			Header: b.Header,
+			Body:   bodyCopy,
+		}
+	}
 	return blocksCopy
 }
 func (bc *Blockchain) Len() int {
@@ -81,6 +190,9 @@ func InitBlockchainWithFunds(low, high uint32, users []User, cfg *config.Config)
 	}
 	blockchain := NewBlockchain()
 	blockchain.blocks = append(blockchain.blocks, genesisBlock)
+
+	blockchain.ScanBlockForUTXOs(genesisBlock)
+
 	return blockchain
 }
 
@@ -162,7 +274,12 @@ func IsHashValid(hash Hash32, diff uint32) bool {
 	return true
 }
 func (b *Blockchain) IsBlockValid(newBlock Block) bool {
+	if len(b.blocks) == 0 {
+		return false
+	}
+	b.ChainMutex.RLock()
 	oldBlock := b.blocks[len(b.blocks)-1]
+	b.ChainMutex.RUnlock()
 	if CalculateHash(oldBlock) != newBlock.Header.PrevHash {
 		return false
 	}
@@ -170,11 +287,7 @@ func (b *Blockchain) IsBlockValid(newBlock Block) bool {
 	diff := newBlock.Header.Difficulty
 	hash := CalculateHash(newBlock)
 
-	if IsHashValid(hash, diff) {
-		return true
-	}
-
-	return true
+	return IsHashValid(hash, diff)
 }
 
 func (bc *Blockchain) ValidateBlock(b Block) error {
@@ -210,7 +323,89 @@ func (bc *Blockchain) ValidateBlock(b Block) error {
 	}
 	return nil
 }
+
+func (bc *Blockchain) ValidateBlockTransactions(b Block) error {
+	bc.ChainMutex.RLock()
+	height := len(bc.blocks)
+	bc.ChainMutex.RUnlock()
+
+	isGenesis := height == 0
+
+	if len(b.Body.Transactions) == 0 {
+		return errors.New("block has no transactions")
+	}
+
+	spentInBlock := make(map[Outpoint]bool)
+
+	for i, tx := range b.Body.Transactions {
+		isCoinbase := len(tx.Inputs) == 0
+
+		if isGenesis {
+			if !isCoinbase {
+				return fmt.Errorf("genesis tx %d must be coinbase-like", i)
+			}
+			continue
+		}
+
+		if isCoinbase {
+			if i != 0 {
+				return fmt.Errorf("coinbase tx only allowed as first tx (found at index %d)", i)
+			}
+			continue
+		}
+
+		if len(tx.Inputs) == 0 {
+			return fmt.Errorf("non-coinbase tx has no inputs (index %d)", i)
+		}
+
+		var inputSum uint32
+		bc.UTXOMutex.RLock()
+		for inputIdx, input := range tx.Inputs {
+			if spentInBlock[input.Prev] {
+				bc.UTXOMutex.RUnlock()
+				return fmt.Errorf("tx %d input %d: double-spend detected within block", i, inputIdx)
+			}
+
+			utxo, exists := bc.UTXOSet[input.Prev]
+			if !exists {
+				bc.UTXOMutex.RUnlock()
+				return fmt.Errorf("tx %d input %d: references non-existent UTXO %s:%d",
+					i, inputIdx, input.Prev.TxID.HexString(), input.Prev.Index)
+			}
+
+			if inputSum+utxo.Value < inputSum {
+				bc.UTXOMutex.RUnlock()
+				return fmt.Errorf("tx %d: input sum overflow", i)
+			}
+			inputSum += utxo.Value
+
+			spentInBlock[input.Prev] = true
+		}
+		bc.UTXOMutex.RUnlock()
+
+		var outputSum uint32
+		for outputIdx, output := range tx.Outputs {
+			if outputSum+output.Value < outputSum {
+				return fmt.Errorf("tx %d: output sum overflow", i)
+			}
+			outputSum += output.Value
+
+			if output.Value == 0 {
+				return fmt.Errorf("tx %d output %d: zero-value output not allowed", i, outputIdx)
+			}
+		}
+
+		if inputSum < outputSum {
+			return fmt.Errorf("tx %d: outputs (%d) exceed inputs (%d)", i, outputSum, inputSum)
+		}
+	}
+
+	return nil
+}
 func (h Header) FindValidNonce(ctx context.Context) (uint32, Hash32, error) {
+	if h.Difficulty == 0 {
+		return h.Nonce, h.Hash(), nil
+	}
 	if h.MerkleRoot == (Hash32{}) {
 		return 0, Hash32{}, errors.New("merkle root not set")
 	}
