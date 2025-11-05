@@ -2,9 +2,7 @@ package blockchain
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/binary"
-	"errors"
 
 	"github.com/Quikmove/blockchain-uzd2/internal/merkletree"
 )
@@ -25,6 +23,33 @@ type Transaction struct {
 	TxID    Hash32     `json:"txid"`
 	Inputs  []TxInput  `json:"vin"`
 	Outputs []TxOutput `json:"vout"`
+}
+
+func (t *Transaction) SignatureHash(value uint32, to Hash32, hasher Hasher) (Hash32, error) {
+	var buf bytes.Buffer
+	_ = binary.Write(&buf, binary.LittleEndian, t.TxID)
+	for _, in := range t.Inputs {
+		buf.Write(in.Prev.TxID[:])
+		_ = binary.Write(&buf, binary.LittleEndian, in.Prev.Index)
+	}
+	for _, out := range t.Outputs {
+		buf.Write(out.To[:])
+		_ = binary.Write(&buf, binary.LittleEndian, out.Value)
+	}
+	_ = binary.Write(&buf, binary.LittleEndian, value)
+	buf.Write(to[:])
+
+	h1, err := hasher.Hash(buf.Bytes())
+	if err != nil {
+		return Hash32{}, err
+	}
+	h2, err := hasher.Hash(h1)
+	if err != nil {
+		return Hash32{}, err
+	}
+	var hash Hash32
+	copy(hash[:], h2)
+	return hash, nil
 }
 
 type UTXO struct {
@@ -51,35 +76,38 @@ func SerializeTx(tx *Transaction) []byte {
 	}
 	return buf.Bytes()
 }
-func (t Transaction) Hash() Hash32 {
+func (t *Transaction) Hash(hasher Hasher) (Hash32, error) {
 	empty := Hash32{}
 	if t.TxID != empty {
-		return t.TxID
+		return t.TxID, nil
 	}
-	serialized := SerializeTx(&t)
-	h1 := sha256.Sum256(serialized)
-	h2 := sha256.Sum256(h1[:])
-	return Hash32(h2)
+	serialized := SerializeTx(t)
+	h1, err := hasher.Hash(serialized)
+	if err != nil {
+		return Hash32{}, err
+	}
+	h2, err := hasher.Hash(h1)
+	if err != nil {
+		return Hash32{}, err
+	}
+	var hash Hash32
+	copy(hash[:], h2)
+	return hash, nil
 }
-func merkleRootHash(t Transactions) Hash32 {
+func merkleRootHash(t Transactions, hasher Hasher) Hash32 {
 	if len(t) == 0 {
 		return Hash32{}
 	}
 	hashes := make([]merkletree.Hash32, 0, len(t))
 	for _, tx := range t {
-		h := tx.Hash()
+		h, err := tx.Hash(hasher)
+		if err != nil {
+			panic(err)
+		}
 		var mh merkletree.Hash32
 		copy(mh[:], h[:])
 		hashes = append(hashes, mh)
 	}
 	mt := merkletree.NewMerkleTree(hashes)
 	return Hash32(mt.Root.Val)
-}
-
-func ValidateTransaction(tx Transaction) error {
-	if len(tx.Inputs) == 0 {
-		return errors.New("tx has no inputs")
-	}
-
-	return nil
 }
