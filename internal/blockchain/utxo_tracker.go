@@ -1,31 +1,49 @@
 package blockchain
 
-import "sync"
+import (
+	"log"
+	"sync"
+)
 
 type UTXOTracker struct {
-	UTXOSet   map[Outpoint]UTXO
+	utxoSet   map[Outpoint]UTXO
 	UTXOMutex *sync.RWMutex
 }
 
 func NewUTXOTracker() *UTXOTracker {
 	return &UTXOTracker{
-		UTXOSet:   make(map[Outpoint]UTXO),
+		utxoSet:   make(map[Outpoint]UTXO),
 		UTXOMutex: &sync.RWMutex{},
 	}
 }
-
-func (t *UTXOTracker) ScanBlock(b Block) {
+func (t *UTXOTracker) reset() {
+	t.UTXOMutex.Lock()
+	defer t.UTXOMutex.Unlock()
+	t.utxoSet = make(map[Outpoint]UTXO)
+}
+func (t *UTXOTracker) ScanBlockchain(bc *Blockchain) {
+	blocks := bc.Blocks()
+	t.reset()
+	for _, block := range blocks {
+		t.ScanBlock(block, bc.hasher)
+	}
+}
+func (t *UTXOTracker) ScanBlock(b Block, hasher Hasher) {
 	t.UTXOMutex.Lock()
 	defer t.UTXOMutex.Unlock()
 
 	for _, tx := range b.Body.Transactions {
 		if len(tx.Inputs) > 0 {
 			for _, input := range tx.Inputs {
-				delete(t.UTXOSet, input.Prev)
+				delete(t.utxoSet, input.Prev)
 			}
 		}
 
-		txHash := tx.Hash()
+		txHash, err := tx.Hash(hasher)
+		if err != nil {
+			log.Printf("Error hashing transaction: %v\n. continuing...", err)
+			continue
+		}
 		for idx, output := range tx.Outputs {
 			outpoint := Outpoint{
 				TxID:  txHash,
@@ -36,7 +54,7 @@ func (t *UTXOTracker) ScanBlock(b Block) {
 				To:    output.To,
 				Value: output.Value,
 			}
-			t.UTXOSet[outpoint] = utxo
+			t.utxoSet[outpoint] = utxo
 		}
 	}
 }
@@ -44,7 +62,7 @@ func (t *UTXOTracker) ScanBlock(b Block) {
 func (t *UTXOTracker) GetUTXO(outpoint Outpoint) (UTXO, bool) {
 	t.UTXOMutex.RLock()
 	defer t.UTXOMutex.RUnlock()
-	utxo, exists := t.UTXOSet[outpoint]
+	utxo, exists := t.utxoSet[outpoint]
 	return utxo, exists
 }
 
@@ -53,7 +71,7 @@ func (t *UTXOTracker) GetUTXOsForAddress(address Hash32) []UTXO {
 	defer t.UTXOMutex.RUnlock()
 
 	var utxos []UTXO
-	for _, utxo := range t.UTXOSet {
+	for _, utxo := range t.utxoSet {
 		if utxo.To == address {
 			utxos = append(utxos, utxo)
 		}

@@ -11,6 +11,11 @@ type User struct {
 	Name      string
 	CreatedAt uint32
 	PublicKey Hash32
+	// add signing with private key
+}
+
+func (u *User) Sign(hash Hash32) ([]byte, error) {
+	return []byte("signed-" + u.Name), nil
 }
 
 func NewUser(name string) *User {
