@@ -3,7 +3,6 @@ package blockchain
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -22,14 +21,16 @@ type Blockchain struct {
 	ChainMutex *sync.RWMutex
 	UTXOSet    map[Outpoint]UTXO
 	UTXOMutex  *sync.RWMutex
+	hasher     Hasher
 }
 
-func NewBlockchain() *Blockchain {
+func NewBlockchain(hasher Hasher) *Blockchain {
 	return &Blockchain{
 		blocks:     []Block{},
 		ChainMutex: &sync.RWMutex{},
 		UTXOSet:    make(map[Outpoint]UTXO),
 		UTXOMutex:  &sync.RWMutex{},
+		hasher:     hasher,
 	}
 }
 
@@ -179,16 +180,16 @@ func (bc *Blockchain) Len() int {
 	defer bc.ChainMutex.RUnlock()
 	return len(bc.blocks)
 }
-func InitBlockchainWithFunds(low, high uint32, users []User, cfg *config.Config) *Blockchain {
+func InitBlockchainWithFunds(low, high uint32, users []User, cfg *config.Config, hasher Hasher) *Blockchain {
 	fundTransactions, err := GenerateFundTransactionsForUsers(users, low, high)
 	if err != nil {
 		panic(err)
 	}
-	genesisBlock, err := CreateGenesisBlock(context.Background(), fundTransactions, cfg)
+	genesisBlock, err := CreateGenesisBlock(context.Background(), fundTransactions, cfg, hasher)
 	if err != nil {
 		panic(err)
 	}
-	blockchain := NewBlockchain()
+	blockchain := NewBlockchain(hasher)
 	blockchain.blocks = append(blockchain.blocks, genesisBlock)
 
 	blockchain.ScanBlockForUTXOs(genesisBlock)
@@ -234,10 +235,19 @@ func (h Header) Serialize() []byte {
 
 	return buf.Bytes()
 }
-func (h Header) Hash() Hash32 {
+func (h Header) Hash(hasher Hasher) (Hash32, error) {
 	b := h.Serialize()
-	x := sha256.Sum256(b)
-	return sha256.Sum256(x[:])
+	x, err := hasher.Hash(b)
+	if err != nil {
+		return Hash32{}, err
+	}
+	y, err := hasher.Hash(x)
+	if err != nil {
+		return Hash32{}, err
+	}
+	var hash Hash32
+	copy(hash[:], y)
+	return hash, nil
 }
 func reverse32(in Hash32) []byte {
 	out := make([]byte, 32)
@@ -252,18 +262,31 @@ func (b Body) MerkleRootHash() Hash32 {
 
 type Transactions []Transaction
 
-func HashBytes(bytes []byte) Hash32 {
-	return sha256.Sum256(bytes)
+func HashBytes(bytes []byte, hasher Hasher) (Hash32, error) {
+	h, err := hasher.Hash(bytes)
+	if err != nil {
+		return Hash32{}, err
+	}
+	var hash32 Hash32
+	copy(hash32[:], h)
+	return hash32, nil
 }
 
-func HashString(str string) Hash32 {
-	return HashBytes([]byte(str))
+func HashString(str string, hasher Hasher) (Hash32, error) {
+	h, err := HashBytes([]byte(str), hasher)
+	if err != nil {
+		return Hash32{}, err
+	}
+	return h, nil
 }
 
-func CalculateHash(block Block) Hash32 {
+func (bc *Blockchain) CalculateHash(block Block) (Hash32, error) {
 	// use 6 main header properties: prev block hash, timestamp, version, merkel root hash, nonce, difficulty target
-	hash := block.Header.Hash()
-	return hash
+	hash, err := block.Header.Hash(bc.hasher)
+	if err != nil {
+		return Hash32{}, err
+	}
+	return hash, nil
 }
 func IsHashValid(hash Hash32, diff uint32) bool {
 	for i := uint32(0); i < diff && i < 32; i++ {
@@ -280,12 +303,19 @@ func (b *Blockchain) IsBlockValid(newBlock Block) bool {
 	b.ChainMutex.RLock()
 	oldBlock := b.blocks[len(b.blocks)-1]
 	b.ChainMutex.RUnlock()
-	if CalculateHash(oldBlock) != newBlock.Header.PrevHash {
+	oldBlockHash, err := b.CalculateHash(oldBlock)
+	if err != nil {
+		return false
+	}
+	if oldBlockHash != newBlock.Header.PrevHash {
 		return false
 	}
 
 	diff := newBlock.Header.Difficulty
-	hash := CalculateHash(newBlock)
+	hash, err := b.CalculateHash(newBlock)
+	if err != nil {
+		return false
+	}
 
 	return IsHashValid(hash, diff)
 }
@@ -316,7 +346,7 @@ func (bc *Blockchain) ValidateBlock(b Block) error {
 			continue
 		}
 
-		if !isCoinbase && len(tx.Inputs) == 0 {
+		if len(tx.Inputs) == 0 {
 			return fmt.Errorf("non-coinbase tx has no inputs (index %d)", i)
 		}
 
@@ -402,9 +432,13 @@ func (bc *Blockchain) ValidateBlockTransactions(b Block) error {
 
 	return nil
 }
-func (h Header) FindValidNonce(ctx context.Context) (uint32, Hash32, error) {
+func (h Header) FindValidNonce(ctx context.Context, hasher Hasher) (uint32, Hash32, error) {
 	if h.Difficulty == 0 {
-		return h.Nonce, h.Hash(), nil
+		hash, err := h.Hash(hasher)
+		if err != nil {
+			return 0, Hash32{}, err
+		}
+		return h.Nonce, hash, nil
 	}
 	if h.MerkleRoot == (Hash32{}) {
 		return 0, Hash32{}, errors.New("merkle root not set")
@@ -418,7 +452,10 @@ func (h Header) FindValidNonce(ctx context.Context) (uint32, Hash32, error) {
 			return 0, Hash32{}, ctx.Err()
 		default:
 			h.Nonce = nonce
-			hash := h.Hash()
+			hash, err := h.Hash(hasher)
+			if err != nil {
+				return 0, Hash32{}, err
+			}
 			if IsHashValid(hash, h.Difficulty) {
 				return nonce, hash, nil
 			}
@@ -431,17 +468,24 @@ func (h Header) FindValidNonce(ctx context.Context) (uint32, Hash32, error) {
 	}
 }
 
-func GenerateBlock(ctx context.Context, oldBlock Block, body Body, version uint32, difficulty uint32) (Block, error) {
-
+func (bc *Blockchain) GenerateBlock(ctx context.Context, body Body, version uint32, difficulty uint32) (Block, error) {
+	latestBlock, err := bc.GetLatestBlock()
+	if err != nil {
+		return Block{}, err
+	}
 	var newHeader Header
 	t := time.Now()
 
 	newHeader.Version = version
-	newHeader.PrevHash = CalculateHash(oldBlock)
+	prevHash, err := bc.CalculateHash(latestBlock)
+	if err != nil {
+		return Block{}, err
+	}
+	newHeader.PrevHash = prevHash
 	newHeader.Timestamp = uint32(t.Unix())
 	newHeader.MerkleRoot = body.MerkleRootHash()
 	newHeader.Difficulty = difficulty
-	nonce, _, err := newHeader.FindValidNonce(ctx)
+	nonce, _, err := newHeader.FindValidNonce(ctx, bc.hasher)
 	if err != nil {
 		return Block{}, err
 	}
