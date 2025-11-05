@@ -7,7 +7,7 @@ import (
 	"github.com/Quikmove/blockchain-uzd2/internal/config"
 )
 
-func CreateGenesisBlock(ctx context.Context, txs Transactions, conf *config.Config) (Block, error) {
+func CreateGenesisBlock(ctx context.Context, txs Transactions, conf *config.Config, hasher Hasher) (Block, error) {
 	t := time.Now()
 	merkleRoot := merkleRootHash(txs)
 	genesisBlock := Block{
@@ -23,7 +23,7 @@ func CreateGenesisBlock(ctx context.Context, txs Transactions, conf *config.Conf
 			Transactions: txs,
 		},
 	}
-	nonce, _, err := genesisBlock.Header.FindValidNonce(ctx)
+	nonce, _, err := genesisBlock.Header.FindValidNonce(ctx, hasher)
 	if err != nil {
 		return Block{}, err
 	}

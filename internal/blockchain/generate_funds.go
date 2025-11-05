@@ -5,9 +5,6 @@ import (
 	"sort"
 )
 
-// go through users and select a random amount between 100 and 1000 to get transferred as UTXOs in exponential sizes: 1, 2, 4, 8, 16, etc.
-// afterwards, construct the genesis block - that's the only block with coinbase-like transactions
-
 func GenerateFundTransactionsForUsers(users []User, low, high uint32) (Transactions, error) {
 	var txs Transactions
 	for _, usr := range users {

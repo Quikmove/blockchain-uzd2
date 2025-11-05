@@ -281,7 +281,6 @@ func HashString(str string, hasher Hasher) (Hash32, error) {
 }
 
 func (bc *Blockchain) CalculateHash(block Block) (Hash32, error) {
-	// use 6 main header properties: prev block hash, timestamp, version, merkel root hash, nonce, difficulty target
 	hash, err := block.Header.Hash(bc.hasher)
 	if err != nil {
 		return Hash32{}, err
