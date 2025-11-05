@@ -1,7 +1,6 @@
 package config
 
 import (
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,8 +35,6 @@ func LoadConfig() *Config {
 		Difficulty: uint32(parsedDifficulty),
 		Port:       port,
 	}
-	log.Println("Version:", cfg.Version)
-	log.Println("Difficulty:", cfg.Difficulty)
 	if root, err := findModuleRoot(); err == nil {
 		cfg.NameListPath = filepath.Join(root, "assets", "name_list.txt")
 	}
