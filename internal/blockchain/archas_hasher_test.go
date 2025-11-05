@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// bitDiffHex calculates the number of differing bits between two hex strings.
 func bitDiffHex(hex1, hex2 string) (int, error) {
 	bytes1, err := hex.DecodeString(hex1)
 	if err != nil {

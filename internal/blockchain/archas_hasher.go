@@ -10,7 +10,6 @@ const (
 	archas_key = "ARCHAS MATUOLIS"
 )
 
-// PeriodicCounter is a Go equivalent of the C++ PeriodicCounter class.
 type PeriodicCounter struct {
 	count      int
 	countLimit int
@@ -65,7 +64,11 @@ func (h *ArchasHasher) collapse(bytes *[]byte, collapseSize int) error {
 	for len(excess) > 0 {
 		cnt := 0
 		for i := range *bytes {
-			val := (h.pc.GetCount() + int(excess[0])) % 256
+			exIdx := 0
+			if len(excess) > 0 {
+				exIdx = cnt % len(excess)
+			}
+			val := (h.pc.GetCount() + int(excess[exIdx])) % 256
 			h.pc.Increment()
 
 			switch val % 6 {
@@ -74,7 +77,8 @@ func (h *ArchasHasher) collapse(bytes *[]byte, collapseSize int) error {
 			case 1:
 				(*bytes)[i] -= byte(val)
 			case 2:
-				(*bytes)[i] *= byte(val)
+				rot := h.rotateLeft8((*bytes)[i], byte(val))
+				(*bytes)[i] = (*bytes)[i] + byte(val) ^ rot
 			case 3:
 				(*bytes)[i] ^= byte(val)
 			case 4:
@@ -88,8 +92,9 @@ func (h *ArchasHasher) collapse(bytes *[]byte, collapseSize int) error {
 
 			(*bytes)[i] = h.rotateLeft8((*bytes)[i], b)
 			(*bytes)[i] ^= byte(val * 37)
-			(*bytes)[i] ^= excess[0]
-			excess[0] = excess[0] + (*bytes)[i] + byte(cnt)
+			(*bytes)[i] ^= excess[exIdx]
+
+			excess[exIdx] = excess[exIdx] + (*bytes)[i] + byte(cnt)
 		}
 		excess = excess[1:]
 	}
@@ -105,10 +110,11 @@ func (h *ArchasHasher) Hash(data []byte) ([]byte, error) {
 
 			block[idx] ^= d
 
-			nonlinearIdx := (idx*3 + 13) % len(block)
+			nonlinearIdx := (idx*139 + 13) % len(block)
 			block[idx] ^= h.rotateLeft8(block[nonlinearIdx], byte(i))
 
-			block[(idx+11)%len(block)] ^= h.rotateLeft8(d+byte(i), (byte(i*13))&0xc5)
+			rotAmt := byte((i * 13) ^ int(block[nonlinearIdx]))
+			block[(idx+11)%len(block)] ^= h.rotateLeft8(d+byte(i), rotAmt)
 		}
 	}
 
@@ -121,6 +127,51 @@ func (h *ArchasHasher) Hash(data []byte) ([]byte, error) {
 	err := h.collapse(&block, 32)
 	if err != nil {
 		return nil, err
+	}
+
+	for r := 0; r < 3; r++ {
+		for i := range block {
+			j := (i*7 + r) % len(block)
+			block[i] ^= h.rotateLeft8(block[j], byte((r+i)&0xff))
+			block[i] += archas_key[(i+r)%len(archas_key)]
+			block[i] = h.rotateLeft8(block[i], block[(i*3+1)%len(block)])
+		}
+	}
+	biasLeading := 4
+	biasBits := 3
+	biasPeriod := 290
+	biasTrigger := 0
+
+	if biasBits > 0 && biasBits <= 8 && biasPeriod > 0 {
+		decision := 0
+		limit := 4
+		if len(block) < limit {
+			limit = len(block)
+		}
+		for i := 0; i < limit; i++ {
+			decision = (decision*31 + int(block[i])) & 0xff
+		}
+
+		if (decision % biasPeriod) == biasTrigger {
+			mask := byte((1 << biasBits) - 1)
+			for i := 0; i < biasLeading && i < len(block); i++ {
+				block[i] &= mask
+			}
+		}
+	}
+	return block, nil
+}
+
+func (h *ArchasHasher) HashVariant1(data []byte) ([]byte, error) {
+	block, err := h.Hash(data)
+	if err != nil {
+		return nil, err
+	}
+
+	biasBase := len(data) & 0xff
+	for i := 0; i < 4 && i < len(block); i++ {
+		small := byte((biasBase + i*13 + int(block[(i+7)%len(block)])) % 16)
+		block[i] = block[i] - small
 	}
 
 	return block, nil
