@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -18,10 +20,10 @@ import (
 var userCount atomic.Uint32
 
 type Blockchain struct {
-	blocks      []Block
-	ChainMutex  *sync.RWMutex
-	utxoTracker *UTXOTracker
-	hasher      Hasher
+	blocks      []Block       `json:"blocks"`
+	ChainMutex  *sync.RWMutex `json:"chain_mutex"`
+	utxoTracker *UTXOTracker  `json:"utxo_tracker"`
+	hasher      Hasher        `json:"hasher"`
 }
 
 func NewBlockchain(hasher Hasher) *Blockchain {
@@ -516,4 +518,24 @@ func (bc *Blockchain) GenerateBlock(ctx context.Context, body Body, version uint
 	}
 
 	return newBlock, nil
+}
+
+// Print writes a pretty JSON representation of the blockchain's blocks to the provided writer.
+// It uses a snapshot of the chain via `Blocks()` to avoid holding locks during encoding.
+func (bc *Blockchain) Print(w io.Writer) error {
+	blocks := bc.Blocks()
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(blocks)
+}
+
+// String returns a pretty JSON string representing the blockchain's blocks.
+// It intentionally ignores encoding errors and returns an empty string on failure.
+func (bc *Blockchain) String() string {
+	blocks := bc.Blocks()
+	b, err := json.MarshalIndent(blocks, "", "  ")
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }

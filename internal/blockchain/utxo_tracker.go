@@ -6,7 +6,7 @@ import (
 )
 
 type UTXOTracker struct {
-	utxoSet   map[Outpoint]UTXO
+	utxoSet   map[Outpoint]UTXO `json:"utxo_set"`
 	UTXOMutex *sync.RWMutex
 }
 

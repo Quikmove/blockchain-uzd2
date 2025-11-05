@@ -7,10 +7,10 @@ import (
 )
 
 type User struct {
-	Id        uint32
-	Name      string
-	CreatedAt uint32
-	PublicKey Hash32
+	Id        uint32 `json:"id"`
+	Name      string `json:"name"`
+	CreatedAt uint32 `json:"created_at"`
+	PublicKey Hash32 `json:"public_key"`
 	// add signing with private key
 }
 

@@ -12,12 +12,12 @@ type Outpoint struct {
 	Index uint32 `json:"index"`
 }
 type TxInput struct {
-	Prev Outpoint
-	Sig  []byte
+	Prev Outpoint `json:"prev"`
+	Sig  []byte   `json:"sig"`
 }
 type TxOutput struct {
-	To    Hash32
-	Value uint32
+	To    Hash32 `json:"to"`
+	Value uint32 `json:"value"`
 }
 type Transaction struct {
 	TxID    Hash32     `json:"txid"`
