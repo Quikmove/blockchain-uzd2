@@ -5,7 +5,7 @@ import (
 	"sort"
 )
 
-func GenerateFundTransactionsForUsers(users []User, low, high uint32) (Transactions, error) {
+func GenerateFundTransactionsForUsers(users []User, low, high uint32, hasher Hasher) (Transactions, error) {
 	var txs Transactions
 	for _, usr := range users {
 		var amount uint32
@@ -19,7 +19,7 @@ func GenerateFundTransactionsForUsers(users []User, low, high uint32) (Transacti
 				amount = low + uint32(rand.Intn(delta))
 			}
 		}
-		utxos := []uint32{}
+		var utxos []uint32
 		remaining := amount
 		size := uint32(1)
 		for remaining > 0 {
@@ -47,7 +47,11 @@ func GenerateFundTransactionsForUsers(users []User, low, high uint32) (Transacti
 			Inputs:  nil,
 			Outputs: outputs,
 		}
-		tx.TxID = tx.Hash()
+		hash, err := tx.Hash(hasher)
+		if err != nil {
+			return nil, err
+		}
+		tx.TxID = hash
 		txs = append(txs, tx)
 	}
 	return txs, nil

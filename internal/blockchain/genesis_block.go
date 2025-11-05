@@ -9,7 +9,7 @@ import (
 
 func CreateGenesisBlock(ctx context.Context, txs Transactions, conf *config.Config, hasher Hasher) (Block, error) {
 	t := time.Now()
-	merkleRoot := merkleRootHash(txs)
+	merkleRoot := merkleRootHash(txs, hasher)
 	genesisBlock := Block{
 		Header: Header{
 			Version:    conf.Version,

@@ -88,7 +88,7 @@ func TestAvalancheBitFlipsAcrossMessage(t *testing.T) {
 }
 
 func TestHasherComparison(t *testing.T) {
-	arkasHasher := NewArchasHasher()
+	archasHasher := NewArchasHasher()
 	sha256Hasher := NewSHA256Hasher()
 
 	inputs := []string{
@@ -102,11 +102,11 @@ func TestHasherComparison(t *testing.T) {
 	t.Logf("|%-11s|%-66s|%-66s|", strings.Repeat("-", 11), strings.Repeat("-", 66), strings.Repeat("-", 66))
 
 	for _, input := range inputs {
-		arkasHashBytes, err := arkasHasher.Hash([]byte(input))
+		archasHashBytes, err := archasHasher.Hash([]byte(input))
 		if err != nil {
 			t.Fatalf("ArchasHasher failed for input '%s': %v", input, err)
 		}
-		arkasHash := hex.EncodeToString(arkasHashBytes)
+		archasHash := hex.EncodeToString(archasHashBytes)
 
 		sha256HashBytes, err := sha256Hasher.Hash([]byte(input))
 		if err != nil {
@@ -114,6 +114,6 @@ func TestHasherComparison(t *testing.T) {
 		}
 		sha256Hash := hex.EncodeToString(sha256HashBytes)
 
-		t.Logf("| %-9s | %-64s | %-64s |", input, arkasHash, sha256Hash)
+		t.Logf("| %-9s | %-64s | %-64s |", input, archasHash, sha256Hash)
 	}
 }
