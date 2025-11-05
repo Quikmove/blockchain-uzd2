@@ -59,9 +59,9 @@ func main() {
 						log.Println(err)
 					}
 					txsSize := 100
-					totalTxs := 10_000
-					blocksToAdd := totalTxs / txsSize
-					for _ = range blocksToAdd {
+					//totalTxs := 10_000
+					//blocksToAdd := totalTxs / txsSize
+					for range 5 {
 						txs, err := bch.GenerateRandomTransactions(users, 10, 50, txsSize)
 						if err != nil {
 							log.Println("Error generating transactions:", err)
