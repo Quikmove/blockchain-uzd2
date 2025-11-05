@@ -19,7 +19,10 @@ func NewUser(name string) *User {
 
 	data := fmt.Sprintf("%d:%s:%d", id, name, time.Now().UnixNano())
 
-	pk := HashString(data)
+	pk, err := HashString(data, NewArchasHasher())
+	if err != nil {
+		panic(err)
+	}
 
 	return &User{
 		Id:        id,
