@@ -60,27 +60,26 @@
 ### Prieš pradedant
 Reikalingi įrankiai:
 - **Go 1.24+** ([parsisiųsti](https://golang.org/dl/))
-- **Make** (macOS/Linux – įdiegta pagal nutylėjimą)
+- **Make** (macOS/Linux – įdiegta numatyta, Windows – per [Chocolatey](https://chocolatey.org/) arba WSL)
 
-### 1️⃣ Klonuoti projektą
+1. Klonuoti projektą
 ```bash
 git clone https://github.com/Quikmove/blockchain-uzd2.git
 cd blockchain-uzd2
 ```
-
-### 2️⃣ Įdiegti priklausomybes
+2. Įdiegti priklausomybes
 ```bash
 go mod download
 ```
 
-### 3️⃣ Sukompiliuoti CLI
+3. Sukompiliuoti CLI
 ```bash
 make build
 # Arba rankiniu būdu:
 # go build -o bin/cli ./cmd/cli
 ```
 
-### 4️⃣ Paleisti blockchain'ą
+4. Paleisti blockchain'ą
 ```bash
 ./bin/cli local
 ```
@@ -103,7 +102,7 @@ BLOCK_VERSION=1
 BLOCK_DIFFICULTY=3
 PORT=8080
 ```
-
+Nesukūrus `.env`, bus naudojamos numatytosios reikšmės.
 ### CLI Komandos
 | Komanda | Aprašymas |
 |---------|-----------|
@@ -135,7 +134,7 @@ type Blockchain struct {
 ---
 
 ### 🔐 `ArchasHasher` (`internal/blockchain/archas_hasher.go`)
-**Custom maišos funkcija**, modifikuota PoW kasimui. Naudoja:
+Patobulinta hešavimo funkcija, perkelta iš C++ kodo, modifikuota PoW kasimui. Naudoja:
 - Baitų rotaciją (`bits.RotateLeft8`)
 - XOR, AND, OR operacijas
 - Dinaminį "collapse" mechanizmą 32-baitų hash'ui generuoti
@@ -146,15 +145,15 @@ type ArchasHasher struct {
 }
 
 func (h *ArchasHasher) Hash(data []byte) ([]byte, error) {
-    // ... bitų manipuliacija, rotacijos, XOR ...
+    // įvairios rotacijos ir bitų operacijos
 }
 ```
 
-**Kam modifikuota?** v0.1 versijoje standartinė `ArchasHasher` negeneruodavo `000...` hash'ų, todėl pridėtas `collapse` mechanizmas.
+
 
 ---
 
-### 🌳 `MerkleTree` (`internal/merkletree/merkletree.go`)
+### `MerkleTree` (`internal/merkletree/merkletree.go`)
 Dvejetainė hash medžio struktūra, naudojama transakcijų autentiškumui tikrinti.
 
 ```go
@@ -174,11 +173,9 @@ type Node struct {
 2. Lapai poruojami ir hash'uojami → viršutiniai mazgai
 3. Kartojama, kol lieka vienas `Root` hash
 
-**Kodėl svarbu?** Merkle Root leidžia greitai patikrinti, ar transakcija priklauso blokui, be viso bloko atsisiuntimo.
-
 ---
 
-### 💰 `UTXOTracker` (`internal/blockchain/utxo_tracker.go`)
+### `UTXOTracker` (`internal/blockchain/utxo_tracker.go`)
 Seka **nepanaudotus transakcijų išvesties balansus** (UTXO modelis).
 
 ```go
@@ -197,7 +194,7 @@ type UTXOTracker struct {
 
 ---
 
-### 📦 `Block` ir `Transaction` struktūros
+### `Block` ir `Transaction` struktūros
 ```go
 type Block struct {
     Header Header
@@ -208,7 +205,7 @@ type Header struct {
     Version    uint32
     Timestamp  uint32
     PrevHash   Hash32
-    MerkleRoot Hash32  // v0.2: tikras Merkle Root
+    MerkleRoot Hash32
     Difficulty uint32
     Nonce      uint32
 }
@@ -224,11 +221,11 @@ type Transaction struct {
 
 ### ⚙️ Validacijos logika (`ValidateBlockTransactions`)
 **Kiekvienos transakcijos tikrinimas:**
-1. ✅ **Genesis bloke** – tik coinbase transakcijos (be inputs)
-2. ✅ **Inputs egzistavimas** – tikrina, ar UTXO egzistuoja `utxoTracker`'yje
-3. ✅ **Double-spend** – užtikrina, kad tas pats UTXO nenaudojamas dukart bloke
-4. ✅ **Balansų tikrinimas** – `inputSum >= outputSum`
-5. ✅ **Overflow apsauga** – tikrina aritmetinius perpildymus
+1. **Genesis bloke** – tik coinbase transakcijos (be inputs)
+2. **Inputs egzistavimas** – tikrina, ar UTXO egzistuoja `utxoTracker`'yje
+3. **Double-spend** – užtikrina, kad tas pats UTXO nenaudojamas dukart bloke
+4. **Balansų tikrinimas** – `inputSum >= outputSum`
+5. **Overflow apsauga** – tikrina aritmetinius perpildymus
 
 ```go
 if inputSum < outputSum {
