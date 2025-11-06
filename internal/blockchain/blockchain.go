@@ -35,50 +35,50 @@ func NewBlockchain(hasher Hasher) *Blockchain {
 	}
 }
 
-func (bc *Blockchain) GetBlock(index int) (Block, error) {
-	bc.ChainMutex.RLock()
-	defer bc.ChainMutex.RUnlock()
-	if index < 0 || index >= len(bc.blocks) {
+func (bch *Blockchain) GetBlock(index int) (Block, error) {
+	bch.ChainMutex.RLock()
+	defer bch.ChainMutex.RUnlock()
+	if index < 0 || index >= len(bch.blocks) {
 		return Block{}, errors.New("block index out of range")
 	}
-	return bc.blocks[index], nil
+	return bch.blocks[index], nil
 }
-func (bc *Blockchain) GetLatestBlock() (Block, error) {
-	bc.ChainMutex.RLock()
-	defer bc.ChainMutex.RUnlock()
-	if len(bc.blocks) == 0 {
+func (bch *Blockchain) GetLatestBlock() (Block, error) {
+	bch.ChainMutex.RLock()
+	defer bch.ChainMutex.RUnlock()
+	if len(bch.blocks) == 0 {
 		return Block{}, errors.New("blockchain is empty")
 	}
-	return bc.blocks[len(bc.blocks)-1], nil
+	return bch.blocks[len(bch.blocks)-1], nil
 }
-func (bc *Blockchain) AddBlock(b Block) error {
-	bc.ChainMutex.RLock()
-	if !bc.IsBlockValid(b) {
-		bc.ChainMutex.RUnlock()
+func (bch *Blockchain) AddBlock(b Block) error {
+	bch.ChainMutex.RLock()
+	if !bch.IsBlockValid(b) {
+		bch.ChainMutex.RUnlock()
 		return errors.New("invalid block")
 	}
-	bc.ChainMutex.RUnlock()
+	bch.ChainMutex.RUnlock()
 
-	if err := bc.ValidateBlockTransactions(b); err != nil {
+	if err := bch.ValidateBlockTransactions(b); err != nil {
 		return fmt.Errorf("block validation failed: %w", err)
 	}
 
-	bc.ChainMutex.Lock()
-	defer bc.ChainMutex.Unlock()
+	bch.ChainMutex.Lock()
+	defer bch.ChainMutex.Unlock()
 
-	bc.blocks = append(bc.blocks, b)
+	bch.blocks = append(bch.blocks, b)
 
-	bc.utxoTracker.ScanBlock(b, bc.hasher)
+	bch.utxoTracker.ScanBlock(b, bch.hasher)
 
 	return nil
 }
 
-func (bc *Blockchain) Blocks() []Block {
-	bc.ChainMutex.RLock()
-	defer bc.ChainMutex.RUnlock()
-	var blocksCopy = make([]Block, len(bc.blocks))
+func (bch *Blockchain) Blocks() []Block {
+	bch.ChainMutex.RLock()
+	defer bch.ChainMutex.RUnlock()
+	var blocksCopy = make([]Block, len(bch.blocks))
 
-	for i, b := range bc.blocks {
+	for i, b := range bch.blocks {
 		var bodyCopy Body
 		if len(b.Body.Transactions) > 0 {
 			bodyCopy.Transactions = make([]Transaction, len(b.Body.Transactions))
@@ -120,10 +120,10 @@ func (bc *Blockchain) Blocks() []Block {
 	}
 	return blocksCopy
 }
-func (bc *Blockchain) Len() int {
-	bc.ChainMutex.RLock()
-	defer bc.ChainMutex.RUnlock()
-	return len(bc.blocks)
+func (bch *Blockchain) Len() int {
+	bch.ChainMutex.RLock()
+	defer bch.ChainMutex.RUnlock()
+	return len(bch.blocks)
 }
 func InitBlockchainWithFunds(low, high uint32, users []User, cfg *config.Config, hasher Hasher) *Blockchain {
 	fundTransactions, err := GenerateFundTransactionsForUsers(users, low, high, hasher)
@@ -225,8 +225,8 @@ func HashString(str string, hasher Hasher) (Hash32, error) {
 	return h, nil
 }
 
-func (bc *Blockchain) CalculateHash(block Block) (Hash32, error) {
-	hash, err := block.Header.Hash(bc.hasher)
+func (bch *Blockchain) CalculateHash(block Block) (Hash32, error) {
+	hash, err := block.Header.Hash(bch.hasher)
 	if err != nil {
 		return Hash32{}, err
 	}
@@ -240,19 +240,19 @@ func IsHashValid(hash Hash32, diff uint32) bool {
 	}
 	return true
 }
-func (bc *Blockchain) IsBlockValid(newBlock Block) bool {
-	bc.ChainMutex.RLock()
-	height := len(bc.blocks)
-	bc.ChainMutex.RUnlock()
+func (bch *Blockchain) IsBlockValid(newBlock Block) bool {
+	bch.ChainMutex.RLock()
+	height := len(bch.blocks)
+	bch.ChainMutex.RUnlock()
 	if height == 0 {
 		return true
 	}
-	oldBlock, err := bc.GetLatestBlock()
+	oldBlock, err := bch.GetLatestBlock()
 	if err != nil {
 		panic(err)
 	}
 
-	oldBlockHash, err := bc.CalculateHash(oldBlock)
+	oldBlockHash, err := bch.CalculateHash(oldBlock)
 	if err != nil {
 		return false
 	}
@@ -261,7 +261,7 @@ func (bc *Blockchain) IsBlockValid(newBlock Block) bool {
 	}
 
 	diff := newBlock.Header.Difficulty
-	hash, err := bc.CalculateHash(newBlock)
+	hash, err := bch.CalculateHash(newBlock)
 	if err != nil {
 		return false
 	}
@@ -269,10 +269,10 @@ func (bc *Blockchain) IsBlockValid(newBlock Block) bool {
 	return IsHashValid(hash, diff)
 }
 
-func (bc *Blockchain) ValidateBlock(b Block) error {
-	bc.ChainMutex.RLock()
-	height := len(bc.blocks)
-	bc.ChainMutex.RUnlock()
+func (bch *Blockchain) ValidateBlock(b Block) error {
+	bch.ChainMutex.RLock()
+	height := len(bch.blocks)
+	bch.ChainMutex.RUnlock()
 
 	isGenesis := height == 0
 
@@ -303,10 +303,10 @@ func (bc *Blockchain) ValidateBlock(b Block) error {
 	return nil
 }
 
-func (bc *Blockchain) ValidateBlockTransactions(b Block) error {
-	bc.ChainMutex.RLock()
-	height := len(bc.blocks)
-	bc.ChainMutex.RUnlock()
+func (bch *Blockchain) ValidateBlockTransactions(b Block) error {
+	bch.ChainMutex.RLock()
+	height := len(bch.blocks)
+	bch.ChainMutex.RUnlock()
 
 	isGenesis := height == 0
 
@@ -340,7 +340,7 @@ func (bc *Blockchain) ValidateBlockTransactions(b Block) error {
 				return fmt.Errorf("tx %d input %d: double-spend detected within block", i, inputIdx)
 			}
 
-			utxo, exists := bc.utxoTracker.GetUTXO(input.Prev)
+			utxo, exists := bch.utxoTracker.GetUTXO(input.Prev)
 			if !exists {
 				return fmt.Errorf("tx %d input %d: references non-existent UTXO %s:%d",
 					i, inputIdx, input.Prev.TxID.HexString(), input.Prev.Index)
@@ -408,7 +408,7 @@ func (h Header) FindValidNonce(ctx context.Context, hasher Hasher) (uint32, Hash
 		}
 	}
 }
-func (bc *Blockchain) GenerateRandomTransactions(users []User, low, high, n int) (Transactions, error) {
+func (bch *Blockchain) GenerateRandomTransactions(users []User, low, high, n int) (Transactions, error) {
 	if high < low {
 		return nil, errors.New("invalid amount range")
 	}
@@ -429,7 +429,7 @@ func (bc *Blockchain) GenerateRandomTransactions(users []User, low, high, n int)
 		sender := users[senderIndex]
 		recipient := users[recipientIndex]
 
-		utxos := bc.utxoTracker.GetUTXOsForAddress(sender.PublicKey)
+		utxos := bch.utxoTracker.GetUTXOsForAddress(sender.PublicKey)
 
 		if len(utxos) == 0 {
 			continue
@@ -464,7 +464,7 @@ func (bc *Blockchain) GenerateRandomTransactions(users []User, low, high, n int)
 		tx := Transaction{Outputs: outputs}
 
 		for j := range inputs {
-			hashToSign, err := tx.SignatureHash(selectedUTXOs[j].Value, selectedUTXOs[j].To, bc.hasher)
+			hashToSign, err := tx.SignatureHash(selectedUTXOs[j].Value, selectedUTXOs[j].To, bch.hasher)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create signature hash: %w", err)
 			}
@@ -476,7 +476,7 @@ func (bc *Blockchain) GenerateRandomTransactions(users []User, low, high, n int)
 		}
 
 		tx.Inputs = inputs
-		txID, err := tx.Hash(bc.hasher)
+		txID, err := tx.Hash(bch.hasher)
 		if err != nil {
 			return nil, fmt.Errorf("failed to hash transaction: %w", err)
 		}
@@ -489,8 +489,8 @@ func (bc *Blockchain) GenerateRandomTransactions(users []User, low, high, n int)
 	}
 	return generatedTxs, nil
 }
-func (bc *Blockchain) GenerateBlock(ctx context.Context, body Body, version uint32, difficulty uint32) (Block, error) {
-	latestBlock, err := bc.GetLatestBlock()
+func (bch *Blockchain) GenerateBlock(ctx context.Context, body Body, version uint32, difficulty uint32) (Block, error) {
+	latestBlock, err := bch.GetLatestBlock()
 	if err != nil {
 		return Block{}, err
 	}
@@ -498,15 +498,15 @@ func (bc *Blockchain) GenerateBlock(ctx context.Context, body Body, version uint
 	t := time.Now()
 
 	newHeader.Version = version
-	prevHash, err := bc.CalculateHash(latestBlock)
+	prevHash, err := bch.CalculateHash(latestBlock)
 	if err != nil {
 		return Block{}, err
 	}
 	newHeader.PrevHash = prevHash
 	newHeader.Timestamp = uint32(t.Unix())
-	newHeader.MerkleRoot = body.MerkleRootHash(bc.hasher)
+	newHeader.MerkleRoot = body.MerkleRootHash(bch.hasher)
 	newHeader.Difficulty = difficulty
-	nonce, _, err := newHeader.FindValidNonce(ctx, bc.hasher)
+	nonce, _, err := newHeader.FindValidNonce(ctx, bch.hasher)
 	if err != nil {
 		return Block{}, err
 	}
@@ -519,20 +519,28 @@ func (bc *Blockchain) GenerateBlock(ctx context.Context, body Body, version uint
 
 	return newBlock, nil
 }
-
-// Print writes a pretty JSON representation of the blockchain's blocks to the provided writer.
-// It uses a snapshot of the chain via `Blocks()` to avoid holding locks during encoding.
-func (bc *Blockchain) Print(w io.Writer) error {
-	blocks := bc.Blocks()
+func (bch *Blockchain) GetBlockByIndex(index int) (Block, error) {
+	bch.ChainMutex.RLock()
+	defer bch.ChainMutex.RUnlock()
+	if index < 0 || index >= len(bch.blocks) {
+		return Block{}, errors.New("block index out of range")
+	}
+	return bch.blocks[index], nil
+}
+func (bch *Blockchain) Print(w io.Writer) error {
+	blocks := bch.Blocks()
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(blocks)
 }
-
-// String returns a pretty JSON string representing the blockchain's blocks.
-// It intentionally ignores encoding errors and returns an empty string on failure.
-func (bc *Blockchain) String() string {
-	blocks := bc.Blocks()
+func (bch *Blockchain) GetUserBalance(address Hash32) uint32 {
+	bch.ChainMutex.RLock()
+	defer bch.ChainMutex.RUnlock()
+	balance := bch.utxoTracker.GetBalance(address)
+	return balance
+}
+func (bch *Blockchain) String() string {
+	blocks := bch.Blocks()
 	b, err := json.MarshalIndent(blocks, "", "  ")
 	if err != nil {
 		return ""
