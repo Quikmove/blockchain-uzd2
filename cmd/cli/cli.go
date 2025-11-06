@@ -44,12 +44,12 @@ func main() {
 				Usage: "Start an interactive blockchain session",
 				Action: func(ctx context.Context, c *cli.Command) error {
 					cfg := config.LoadConfig()
-					log.Println("Please select an option:")
 					hasher := blockchain.NewArchasHasher()
 					log.Println("Version:", cfg.Version)
 					log.Println("Difficulty:", cfg.Difficulty)
 					names := filetolist.FileToList(cfg.NameListPath)
-					users := blockchain.GenerateUsers(names, 50)
+					users := blockchain.GenerateUsers(names, cfg.UserCount)
+					log.Println("User count:", len(users))
 					log.Println("Generating genesis block...")
 					bch := blockchain.InitBlockchainWithFunds(100, 1000000, users, cfg, hasher)
 					genesis, _ := bch.GetLatestBlock()
@@ -478,10 +478,10 @@ func main() {
 
 							utxos := bch.GetUTXOsForAddress(user.PublicKey)
 
-							fmt.Printf("\n╔═══════════════════════════════════════════════════════════════════════════════════════════╗\n")
-							fmt.Printf("║                            UTXOs for %-52s║\n", user.Name)
+							fmt.Printf("\n╔══════════════════════════════════════════════════════════════════════════════════════════╗\n")
+							fmt.Printf("║                            UTXOs for %-51s ║\n", user.Name)
 							fmt.Println("╠══════╦═══════════════╦═══════════════════════════════════════════════════════════════════╣")
-							fmt.Println("║  #   ║     VALUE     ║                    TRANSACTION ID:INDEX                       ║")
+							fmt.Println("║  #   ║     VALUE     ║                    TRANSACTION ID:INDEX                           ║")
 							fmt.Println("╠══════╬═══════════════╬═══════════════════════════════════════════════════════════════════╣")
 
 							totalValue := uint32(0)
@@ -490,16 +490,16 @@ func main() {
 							} else {
 								for i, utxo := range utxos {
 									txIDHex := fmt.Sprintf("%x", utxo.Out.TxID)
-									fmt.Printf("║ %4d ║ %13d ║ %s:%d%s║\n",
-										i+1, utxo.Value, txIDHex[:58], utxo.Out.Index, "   ")
+									fmt.Printf("║ %4d ║ %13d ║ %s:%-6d ║\n",
+										i+1, utxo.Value, txIDHex[:58], utxo.Out.Index)
 									totalValue += utxo.Value
 								}
 							}
 
 							fmt.Println("╠══════╩═══════════════╩═══════════════════════════════════════════════════════════════════╣")
-							fmt.Printf("║ Total UTXOs: %-10d                            Total Value: %-20d ║\n",
+							fmt.Printf("║ Total UTXOs: %-10d                            Total Value: %-24d ║\n",
 								len(utxos), totalValue)
-							fmt.Println("╚═══════════════════════════════════════════════════════════════════════════════════════════╝\n")
+							fmt.Println("╚══════════════════════════════════════════════════════════════════════════════════════════╝\n")
 						case "help":
 							fmt.Println("\n╔═══════════════════════════════════════════════════════════════════════════════════════════╗")
 							fmt.Println("║                              BLOCKCHAIN CLI - HELP                                        ║")

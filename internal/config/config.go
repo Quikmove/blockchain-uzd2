@@ -11,12 +11,13 @@ type Config struct {
 	Difficulty   uint32
 	Port         string
 	NameListPath string
+	UserCount    int
 }
 
 func LoadConfig() *Config {
 	version := os.Getenv("BLOCK_VERSION")
 	difficulty := os.Getenv("BLOCK_DIFFICULTY")
-
+	userCount := os.Getenv("USER_COUNT")
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -25,7 +26,10 @@ func LoadConfig() *Config {
 	if err != nil {
 		parsedVersion = 1
 	}
-
+	parsedUsers, err := strconv.Atoi(userCount)
+	if err != nil || parsedUsers < 0 {
+		parsedUsers = 100
+	}
 	parsedDifficulty, err := strconv.ParseUint(difficulty, 10, 32)
 	if err != nil {
 		parsedDifficulty = 3
@@ -34,6 +38,7 @@ func LoadConfig() *Config {
 		Version:    uint32(parsedVersion),
 		Difficulty: uint32(parsedDifficulty),
 		Port:       port,
+		UserCount:  parsedUsers,
 	}
 	if root, err := findModuleRoot(); err == nil {
 		cfg.NameListPath = filepath.Join(root, "assets", "name_list.txt")
