@@ -53,12 +53,28 @@ func (bch *Blockchain) GetLatestBlock() (Block, error) {
 }
 func (bch *Blockchain) AddBlock(b Block) error {
 	bch.ChainMutex.RLock()
-	if !bch.IsBlockValid(b) {
-		bch.ChainMutex.RUnlock()
-		return errors.New("invalid block")
+	height := len(bch.blocks)
+	var tip Block
+	if height > 0 {
+		tip = bch.blocks[height-1]
 	}
 	bch.ChainMutex.RUnlock()
-
+	if height != 0 {
+		tipHash, err := bch.CalculateHash(tip)
+		if err != nil {
+			return fmt.Errorf("failed to calculate tip hash: %w", err)
+		}
+		if tipHash != b.Header.PrevHash {
+			return errors.New("new block's prev hash does not match tip hash")
+		}
+		hash, err := bch.CalculateHash(b)
+		if err != nil {
+			return fmt.Errorf("failed to calculate new block hash: %w", err)
+		}
+		if !IsHashValid(hash, b.Header.Difficulty) {
+			return errors.New("new block hash does not meet difficulty requirements")
+		}
+	}
 	if err := bch.ValidateBlockTransactions(b); err != nil {
 		return fmt.Errorf("block validation failed: %w", err)
 	}
@@ -66,6 +82,17 @@ func (bch *Blockchain) AddBlock(b Block) error {
 	bch.ChainMutex.Lock()
 	defer bch.ChainMutex.Unlock()
 
+	curHeight := len(bch.blocks)
+	if curHeight != 0 {
+		curTip := bch.blocks[curHeight-1]
+		curTipHash, err := bch.CalculateHash(curTip)
+		if err != nil {
+			return fmt.Errorf("failed to calculate current tip hash: %w", err)
+		}
+		if curTipHash != b.Header.PrevHash {
+			return errors.New("new block's prev hash does not match current tip hash")
+		}
+	}
 	bch.blocks = append(bch.blocks, b)
 
 	bch.utxoTracker.ScanBlock(b, bch.hasher)
@@ -233,12 +260,27 @@ func (bch *Blockchain) CalculateHash(block Block) (Hash32, error) {
 	return hash, nil
 }
 func IsHashValid(hash Hash32, diff uint32) bool {
-	for i := uint32(0); i < diff && i < 32; i++ {
-		if hash[i] != 0 {
+	if diff == 0 {
+		return true
+	}
+
+	bits := diff * 4 // * 8 / 2
+	if bits > 8*uint32(len(hash)) {
+		return false
+	}
+	fullBytes := bits / 8
+	remBits := bits % 8
+	var zero [32]byte
+	if fullBytes > 0 {
+		if !bytes.Equal(hash[:fullBytes], zero[:fullBytes]) {
 			return false
 		}
 	}
-	return true
+	if remBits == 0 {
+		return true
+	}
+	mask := byte(0xFF << (8 - remBits))
+	return (hash[fullBytes] & mask) == 0
 }
 func (bch *Blockchain) IsBlockValid(newBlock Block) bool {
 	bch.ChainMutex.RLock()
@@ -388,26 +430,25 @@ func (h Header) FindValidNonce(ctx context.Context, hasher Hasher) (uint32, Hash
 	var nonce uint32
 
 	for {
-		select {
-		case <-ctx.Done():
-			return 0, Hash32{}, ctx.Err()
-		default:
-			h.Nonce = nonce
-			hash, err := h.Hash(hasher)
-			if err != nil {
-				return 0, Hash32{}, err
-			}
-			if IsHashValid(hash, h.Difficulty) {
-				return nonce, hash, nil
-			}
-			nonce++
+		if err := ctx.Err(); err != nil {
+			return 0, Hash32{}, err
+		}
+		h.Nonce = nonce
+		hash, err := h.Hash(hasher)
+		if err != nil {
+			return 0, Hash32{}, err
+		}
+		if IsHashValid(hash, h.Difficulty) {
+			return nonce, hash, nil
+		}
+		nonce++
 
-			if nonce == 0 {
-				return 0, Hash32{}, errors.New("nonce overflow")
-			}
+		if nonce == ^uint32(0) {
+			return 0, Hash32{}, errors.New("nonce overflow")
 		}
 	}
 }
+
 func (bch *Blockchain) GenerateRandomTransactions(users []User, low, high, n int) (Transactions, error) {
 	if high < low {
 		return nil, errors.New("invalid amount range")
