@@ -27,11 +27,13 @@ type Transaction struct {
 
 func (t *Transaction) SignatureHash(value uint32, to Hash32, hasher Hasher) (Hash32, error) {
 	var buf bytes.Buffer
-	_ = binary.Write(&buf, binary.LittleEndian, t.TxID)
+
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(len(t.Inputs)))
 	for _, in := range t.Inputs {
 		buf.Write(in.Prev.TxID[:])
 		_ = binary.Write(&buf, binary.LittleEndian, in.Prev.Index)
 	}
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(len(t.Outputs)))
 	for _, out := range t.Outputs {
 		buf.Write(out.To[:])
 		_ = binary.Write(&buf, binary.LittleEndian, out.Value)
