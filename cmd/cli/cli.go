@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -99,17 +100,87 @@ func main() {
 							log.Println("Error adding new block to blockchain:", err)
 							continue
 						}
-						log.Println("Added new block with nonce:", newBlock.Header.Nonce)
+						log.Printf("Added a new block with %d transactions and nonce: %d", len(txs), newBlock.Header.Nonce)
 					}
-					return nil
-				},
-			},
-			{
-				Name:  "blocks",
-				Usage: "Fetch and display blockchain blocks",
-				Action: func(context.Context, *cli.Command) error {
-					fmt.Println("Not implemented yet")
-					return nil
+					for {
+						fmt.Println("-------------------------")
+						fmt.Println("Available commands:")
+						fmt.Println("addblocks - Add new blocks with random transactions")
+						fmt.Println("getblockheader - Get block header by index")
+						fmt.Println("getblocktransactions - Get block transactions by index")
+						fmt.Println("balance - Show user balances")
+						fmt.Println("exit - Exit the program")
+						fmt.Println("-------------------------")
+						fmt.Println("Please enter a command")
+						var command string
+						_, err := fmt.Scanln(&command)
+						if err != nil {
+							fmt.Println("failed to read command, try again:", err)
+							continue
+						}
+						switch command {
+						case "getblockheader":
+							var index int
+							fmt.Println("Please enter block index:")
+							_, err := fmt.Scanln(&index)
+							if err != nil {
+								fmt.Println("failed to read index, try again:", err)
+								continue
+							}
+							block, err := bch.GetBlockByIndex(index)
+							if err != nil {
+								fmt.Println("Error:", err)
+								continue
+							}
+							headBytes, err := json.MarshalIndent(block.Header, "", "  ")
+							if err != nil {
+								fmt.Printf("Block Header at index %d: %+v\n", index, block.Header)
+								continue
+							}
+							fmt.Printf("Block Header at index %d:\n%s\n", index, string(headBytes))
+						case "addblocks":
+							var numBlocks int
+							fmt.Println("Please enter number of blocks to add:")
+							_, err := fmt.Scanln(&numBlocks)
+							if err != nil {
+								fmt.Println("failed to read number, try again:", err)
+								continue
+							}
+							if numBlocks <= 0 {
+								fmt.Println("Number of blocks must be positive")
+								continue
+							}
+
+						case "getblocktransactions":
+							var index int
+							fmt.Println("Please enter block index:")
+							_, err := fmt.Scanln(&index)
+							if err != nil {
+								fmt.Println("failed to read index, try again:", err)
+								continue
+							}
+							block, err := bch.GetBlockByIndex(index)
+							if err != nil {
+								fmt.Println("Error:", err)
+								continue
+							}
+							bodyBytes, err := json.MarshalIndent(block.Body.Transactions, "", "  ")
+							if err != nil {
+								fmt.Printf("Block Transactions at index %d: %+v\n", index, bodyBytes)
+								continue
+							}
+						case "balance":
+							for _, user := range users {
+								balance := bch.GetUserBalance(user.PublicKey)
+								fmt.Printf("User %s has balance: %d\n", user.Name, balance)
+							}
+						case "exit":
+							fmt.Println("Exiting...")
+							return nil
+						default:
+							fmt.Println("Unknown command")
+						}
+					}
 				},
 			},
 		},
