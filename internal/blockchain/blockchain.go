@@ -212,6 +212,7 @@ func (b *Body) UnmarshalJSON(data []byte) error {
 type Blockchain struct {
 	blocks      []Block
 	chainMutex  *sync.RWMutex
+	txGenMutex  *sync.Mutex
 	utxoTracker *UTXOTracker
 	hasher      Hasher
 }
@@ -220,6 +221,7 @@ func NewBlockchain(hasher Hasher) *Blockchain {
 	return &Blockchain{
 		blocks:      []Block{},
 		chainMutex:  &sync.RWMutex{},
+		txGenMutex:  &sync.Mutex{},
 		utxoTracker: NewUTXOTracker(),
 		hasher:      hasher,
 	}
@@ -633,6 +635,9 @@ func (h Header) FindValidNonce(ctx context.Context, hasher Hasher) (uint32, Hash
 }
 
 func (bch *Blockchain) GenerateRandomTransactions(users []User, low, high, n int) (Transactions, error) {
+	bch.txGenMutex.Lock()
+	defer bch.txGenMutex.Unlock()
+
 	if high < low {
 		return nil, errors.New("invalid amount range")
 	}
@@ -644,7 +649,12 @@ func (bch *Blockchain) GenerateRandomTransactions(users []User, low, high, n int
 	userAmount := len(users)
 	usedOutpoints := make(map[Outpoint]bool, 0)
 
-	for i := 0; i < n; i++ {
+	maxAttempts := n * 10
+	attempts := 0
+
+	for len(generatedTxs) < n && attempts < maxAttempts {
+		attempts++
+
 		senderIndex := rand.Intn(userAmount)
 		recipientIndex := rand.Intn(userAmount)
 		for senderIndex == recipientIndex {
@@ -677,6 +687,14 @@ func (bch *Blockchain) GenerateRandomTransactions(users []User, low, high, n int
 			totalInput += utxo.Value
 		}
 
+		if len(inputs) == 0 {
+			continue
+		}
+
+		if totalInput < amount {
+			continue
+		}
+
 		var outputs []TxOutput
 		outputs = append(outputs, TxOutput{Value: amount, To: recipient.PublicKey})
 
@@ -685,9 +703,12 @@ func (bch *Blockchain) GenerateRandomTransactions(users []User, low, high, n int
 			outputs = append(outputs, TxOutput{Value: change, To: sender.PublicKey})
 		}
 
-		tx := Transaction{Outputs: outputs}
+		tx := Transaction{
+			Inputs:  inputs,
+			Outputs: outputs,
+		}
 
-		for j := range inputs {
+		for j := range tx.Inputs {
 			hashToSign, err := tx.SignatureHash(selectedUTXOs[j].Value, selectedUTXOs[j].To, bch.hasher)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create signature hash: %w", err)
@@ -696,10 +717,9 @@ func (bch *Blockchain) GenerateRandomTransactions(users []User, low, high, n int
 			if err != nil {
 				return nil, fmt.Errorf("failed to sign transaction input: %w", err)
 			}
-			inputs[j].Sig = sig
+			tx.Inputs[j].Sig = sig
 		}
 
-		tx.Inputs = inputs
 		txID, err := tx.Hash(bch.hasher)
 		if err != nil {
 			return nil, fmt.Errorf("failed to hash transaction: %w", err)
@@ -711,6 +731,11 @@ func (bch *Blockchain) GenerateRandomTransactions(users []User, low, high, n int
 			usedOutpoints[utxo.Out] = true
 		}
 	}
+
+	if len(generatedTxs) == 0 {
+		return nil, errors.New("could not generate any valid transactions, users may not have sufficient funds")
+	}
+
 	return generatedTxs, nil
 }
 func (bch *Blockchain) GenerateBlock(ctx context.Context, body Body, version uint32, difficulty uint32) (Block, error) {
@@ -762,6 +787,9 @@ func (bch *Blockchain) GetUserBalance(address Hash32) uint32 {
 	defer bch.chainMutex.RUnlock()
 	balance := bch.utxoTracker.GetBalance(address)
 	return balance
+}
+func (bch *Blockchain) GetUTXOsForAddress(address Hash32) []UTXO {
+	return bch.utxoTracker.GetUTXOsForAddress(address)
 }
 func (bch *Blockchain) String() string {
 	blocks := bch.Blocks()
