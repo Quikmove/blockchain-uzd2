@@ -6,7 +6,7 @@ import (
 )
 
 type UTXOTracker struct {
-	utxoSet   map[Outpoint]UTXO `json:"utxo_set"`
+	utxoSet   map[Outpoint]UTXO
 	UTXOMutex *sync.RWMutex
 }
 
@@ -32,7 +32,9 @@ func (t *UTXOTracker) ScanBlock(b Block, hasher Hasher) {
 	t.UTXOMutex.Lock()
 	defer t.UTXOMutex.Unlock()
 
-	for _, tx := range b.Body.Transactions {
+	body := b.GetBody()
+	txs := body.GetTransactions()
+	for _, tx := range txs {
 		if len(tx.Inputs) > 0 {
 			for _, input := range tx.Inputs {
 				delete(t.utxoSet, input.Prev)

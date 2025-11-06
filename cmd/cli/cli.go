@@ -20,9 +20,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// (&cli.Command{}).Run(context.Background(), os.Args)
-	//choose to start an api or to connect to running api
-	//therefore need to determine how to check if api endpoint is valid
 	app := &cli.Command{
 		Name:  "blockchain-cli",
 		Usage: "Interact with blockchain (local or via HTTP API)",
@@ -56,7 +53,8 @@ func main() {
 					log.Println("Generating genesis block...")
 					bch := blockchain.InitBlockchainWithFunds(100, 1000000, users, cfg, hasher)
 					genesis, _ := bch.GetLatestBlock()
-					log.Println("Found a POW hash successfully with nonce:", genesis.Header.Nonce)
+					genesisHeader := genesis.GetHeader()
+					log.Println("Found a POW hash successfully with nonce:", genesisHeader.GetNonce())
 					log.Println("Added genesis block successfully")
 
 					if err != nil {
@@ -67,8 +65,9 @@ func main() {
 					for {
 						fmt.Println("-------------------------")
 						fmt.Println("Available commands:")
-						fmt.Println("addblocks - Add new blocks with random transactions")
+						fmt.Println("mineblocks - mine new blocks with random transactions")
 						fmt.Println("getallheaders - Get all block headers")
+						fmt.Println("getblockhash - Get block hash by index")
 						fmt.Println("getblockheader - Get block header by index")
 						fmt.Println("getblocktransactions - Get block transactions by index")
 						fmt.Println("balance - Show user balances")
@@ -95,13 +94,32 @@ func main() {
 								fmt.Println("Error:", err)
 								continue
 							}
-							headBytes, err := json.MarshalIndent(block.Header, "", "  ")
+							headBytes, err := json.MarshalIndent(block.GetHeader(), "", "  ")
 							if err != nil {
-								fmt.Printf("Block Header at index %d: %+v\n", index, block.Header)
+								fmt.Printf("Block Header at index %d: %+v\n", index, block.GetHeader())
 								continue
 							}
 							fmt.Printf("Block Header at index %d:\n%s\n", index, string(headBytes))
-						case "mine":
+						case "getblockhash":
+							var index int
+							fmt.Println("Please enter block index:")
+							_, err := fmt.Scanln(&index)
+							if err != nil {
+								fmt.Println("failed to read index, try again:", err)
+								continue
+							}
+							block, err := bch.GetBlockByIndex(index)
+							if err != nil {
+								fmt.Println("Error:", err)
+								continue
+							}
+							hash, err := bch.CalculateHash(block)
+							if err != nil {
+								fmt.Println("Error calculating hash:", err)
+								continue
+							}
+							fmt.Printf("Block Hash at index %d: %x\n", index, hash)
+						case "mineblocks":
 							var numBlocks int
 							fmt.Println("Please enter number of blocks to mine concurrently:")
 							_, err := fmt.Scanln(&numBlocks)
@@ -114,20 +132,6 @@ func main() {
 							if err != nil {
 								fmt.Println("Error mining blocks:", err)
 							}
-						case "addblocks":
-							var numBlocks int
-							fmt.Println("Please enter number of blocks to add:")
-							_, err := fmt.Scanln(&numBlocks)
-							if err != nil {
-								fmt.Println("failed to read number, try again:", err)
-								continue
-							}
-							if numBlocks <= 0 {
-								fmt.Println("Number of blocks must be positive")
-								continue
-							}
-							AddBlocks(numBlocks, ctx, bch, users, txsSize, cfg, hasher)
-
 						case "getblocktransactions":
 							var index int
 							fmt.Println("Please enter block index:")
@@ -141,7 +145,9 @@ func main() {
 								fmt.Println("Error:", err)
 								continue
 							}
-							bodyBytes, err := json.MarshalIndent(block.Body.Transactions, "", "  ")
+							body := block.GetBody()
+							txs := body.GetTransactions()
+							bodyBytes, err := json.MarshalIndent(txs, "", "  ")
 							if err != nil {
 								fmt.Printf("Block Transactions at index %d: %+v\n", index, bodyBytes)
 								continue
@@ -149,7 +155,7 @@ func main() {
 						case "getallheaders":
 							headers := make([]blockchain.Header, 0, bch.Len())
 							for _, blk := range bch.Blocks() {
-								headers = append(headers, blk.Header)
+								headers = append(headers, blk.GetHeader())
 							}
 							headersBytes, err := json.MarshalIndent(headers, "", "  ")
 							if err != nil {
@@ -198,26 +204,24 @@ func AddBlocks(blockNum int, ctx context.Context, bch *blockchain.Blockchain, us
 		}
 		var header blockchain.Header
 		var body blockchain.Body
-		body.Transactions = txs
-		header.Version = cfg.Version
-		header.MerkleRoot = body.MerkleRootHash(hasher)
-		header.PrevHash = hash
-		header.Timestamp = uint32(time.Now().Unix())
-		header.Difficulty = cfg.Difficulty
+		body.SetTransactions(txs)
+		header.SetVersion(cfg.Version)
+		header.SetMerkleRoot(body.MerkleRootHash(hasher))
+		header.SetPrevHash(hash)
+		header.SetTimestamp(uint32(time.Now().Unix()))
+		header.SetDifficulty(cfg.Difficulty)
 		nonce, _, err := header.FindValidNonce(ctx, hasher)
 		if err != nil {
 			log.Println("Error finding valid nonce:", err)
 			continue
 		}
-		header.Nonce = nonce
-		newBlock := blockchain.Block{
-			Header: header,
-			Body:   body,
-		}
+		header.SetNonce(nonce)
+		newBlock := blockchain.NewBlock(header, body)
 		if err := bch.AddBlock(newBlock); err != nil {
 			log.Println("Error adding new block to blockchain:", err)
 			continue
 		}
-		log.Printf("Added a new block with %d transactions and nonce: %d", len(txs), newBlock.Header.Nonce)
+		blockHeader := newBlock.GetHeader()
+		log.Printf("Added a new block with %d transactions and nonce: %d", len(txs), blockHeader.GetNonce())
 	}
 }

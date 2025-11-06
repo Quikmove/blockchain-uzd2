@@ -10,23 +10,22 @@ import (
 func CreateGenesisBlock(ctx context.Context, txs Transactions, conf *config.Config, hasher Hasher) (Block, error) {
 	t := time.Now()
 	merkleRoot := merkleRootHash(txs, hasher)
-	genesisBlock := Block{
-		Header: Header{
-			Version:    conf.Version,
-			Timestamp:  uint32(t.Unix()),
-			PrevHash:   Hash32{},
-			MerkleRoot: merkleRoot,
-			Difficulty: conf.Difficulty,
-			Nonce:      0,
-		},
-		Body: Body{
-			Transactions: txs,
-		},
-	}
-	nonce, _, err := genesisBlock.Header.FindValidNonce(ctx, hasher)
+	header := NewHeader(
+		conf.Version,
+		uint32(t.Unix()),
+		Hash32{},
+		merkleRoot,
+		conf.Difficulty,
+		0,
+	)
+	body := NewBody(txs)
+	genesisBlock := NewBlock(header, body)
+
+	nonce, _, err := genesisBlock.GetHeader().FindValidNonce(ctx, hasher)
 	if err != nil {
 		return Block{}, err
 	}
-	genesisBlock.Header.Nonce = nonce
+	header.SetNonce(nonce)
+	genesisBlock.SetHeader(header)
 	return genesisBlock, nil
 }

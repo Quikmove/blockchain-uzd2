@@ -25,7 +25,7 @@ func TestUTXOTracker(t *testing.T) {
 	}
 	tx1.TxID = tx1Hash
 
-	block1 := Block{Body: Body{Transactions: []Transaction{tx1}}}
+	block1 := NewBlock(Header{}, NewBody([]Transaction{tx1}))
 
 	tracker.ScanBlock(block1, hasher)
 
@@ -62,7 +62,7 @@ func TestUTXOTracker(t *testing.T) {
 	}
 	tx2.TxID = tx2Hash
 
-	block2 := Block{Body: Body{Transactions: []Transaction{tx2}}}
+	block2 := NewBlock(Header{}, NewBody([]Transaction{tx2}))
 
 	tracker.ScanBlock(block2, hasher)
 
@@ -138,7 +138,7 @@ func TestGetUTXO(t *testing.T) {
 	}
 	tx.TxID = txHash
 
-	block := Block{Body: Body{Transactions: []Transaction{tx}}}
+	block := NewBlock(Header{}, NewBody([]Transaction{tx}))
 	tracker.ScanBlock(block, hasher)
 
 	outpoint := Outpoint{TxID: txHash, Index: 0}
