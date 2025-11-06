@@ -85,6 +85,9 @@ func (t *UTXOTracker) GetBalance(address Hash32) uint32 {
 	utxos := t.GetUTXOsForAddress(address)
 	var balance uint32
 	for _, utxo := range utxos {
+		if balance > ^uint32(0)-utxo.Value {
+			return ^uint32(0)
+		}
 		balance += utxo.Value
 	}
 	return balance
