@@ -244,14 +244,17 @@ func (bch *Blockchain) GetLatestBlock() (Block, error) {
 	return bch.blocks[len(bch.blocks)-1], nil
 }
 func (bch *Blockchain) AddBlock(b Block) error {
-	bch.chainMutex.RLock()
-	height := len(bch.blocks)
-	var tip Block
-	if height > 0 {
-		tip = bch.blocks[height-1]
+	if err := bch.ValidateBlockTransactions(b); err != nil {
+		return fmt.Errorf("block validation failed: %w", err)
 	}
-	bch.chainMutex.RUnlock()
+
+	bch.chainMutex.Lock()
+	defer bch.chainMutex.Unlock()
+
+	height := len(bch.blocks)
+
 	if height != 0 {
+		tip := bch.blocks[height-1]
 		tipHash, err := bch.CalculateHash(tip)
 		if err != nil {
 			return fmt.Errorf("failed to calculate tip hash: %w", err)
@@ -268,25 +271,7 @@ func (bch *Blockchain) AddBlock(b Block) error {
 			return errors.New("new block hash does not meet difficulty requirements")
 		}
 	}
-	if err := bch.ValidateBlockTransactions(b); err != nil {
-		return fmt.Errorf("block validation failed: %w", err)
-	}
 
-	bch.chainMutex.Lock()
-	defer bch.chainMutex.Unlock()
-
-	curHeight := len(bch.blocks)
-	if curHeight != 0 {
-		curTip := bch.blocks[curHeight-1]
-		curTipHash, err := bch.CalculateHash(curTip)
-		if err != nil {
-			return fmt.Errorf("failed to calculate current tip hash: %w", err)
-		}
-		header := b.GetHeader()
-		if curTipHash != header.GetPrevHash() {
-			return errors.New("new block's prev hash does not match current tip hash")
-		}
-	}
 	bch.blocks = append(bch.blocks, b)
 
 	bch.utxoTracker.ScanBlock(b, bch.hasher)
@@ -554,11 +539,18 @@ func (bch *Blockchain) ValidateBlockTransactions(b Block) error {
 			if i != 0 {
 				return fmt.Errorf("coinbase tx only allowed as first tx (found at index %d)", i)
 			}
+			if len(tx.Outputs) == 0 {
+				return fmt.Errorf("coinbase tx %d has no outputs", i)
+			}
 			continue
 		}
 
 		if len(tx.Inputs) == 0 {
 			return fmt.Errorf("non-coinbase tx has no inputs (index %d)", i)
+		}
+
+		if len(tx.Outputs) == 0 {
+			return fmt.Errorf("tx %d has no outputs", i)
 		}
 
 		var inputSum uint32
@@ -573,7 +565,7 @@ func (bch *Blockchain) ValidateBlockTransactions(b Block) error {
 					i, inputIdx, input.Prev.TxID.HexString(), input.Prev.Index)
 			}
 
-			if inputSum+utxo.Value < inputSum {
+			if inputSum > ^uint32(0)-utxo.Value {
 				return fmt.Errorf("tx %d: input sum overflow", i)
 			}
 			inputSum += utxo.Value
@@ -583,14 +575,14 @@ func (bch *Blockchain) ValidateBlockTransactions(b Block) error {
 
 		var outputSum uint32
 		for outputIdx, output := range tx.Outputs {
-			if outputSum+output.Value < outputSum {
-				return fmt.Errorf("tx %d: output sum overflow", i)
-			}
-			outputSum += output.Value
-
 			if output.Value == 0 {
 				return fmt.Errorf("tx %d output %d: zero-value output not allowed", i, outputIdx)
 			}
+
+			if outputSum > ^uint32(0)-output.Value {
+				return fmt.Errorf("tx %d: output sum overflow", i)
+			}
+			outputSum += output.Value
 		}
 
 		if inputSum < outputSum {
@@ -638,7 +630,7 @@ func (bch *Blockchain) GenerateRandomTransactions(users []User, low, high, n int
 	bch.txGenMutex.Lock()
 	defer bch.txGenMutex.Unlock()
 
-	if high < low {
+	if high < low || low < 0 {
 		return nil, errors.New("invalid amount range")
 	}
 	if len(users) < 2 {
@@ -670,6 +662,9 @@ func (bch *Blockchain) GenerateRandomTransactions(users []User, low, high, n int
 		}
 
 		amount := uint32(low + rand.Intn(high-low+1))
+		if amount == 0 {
+			continue
+		}
 
 		var inputs []TxInput
 		var selectedUTXOs []UTXO
@@ -680,6 +675,9 @@ func (bch *Blockchain) GenerateRandomTransactions(users []User, low, high, n int
 				break
 			}
 			if usedOutpoints[utxo.Out] {
+				continue
+			}
+			if totalInput > ^uint32(0)-utxo.Value {
 				continue
 			}
 			inputs = append(inputs, TxInput{Prev: utxo.Out})
