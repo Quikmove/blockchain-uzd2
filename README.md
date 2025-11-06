@@ -1,83 +1,21 @@
 # Blokų grandinių technologijos – 2 užduotis
 **v0.2 versija** | Go 1.24+ | UTXO modelis | Merkle Tree | CLI | Lygiagretus kasimas
 
-## Anotacija
-
-Tai yra **centralizuota blokų grandinės (blockchain) implementacija** Go kalba, realizuojanti **UTXO (Unspent Transaction Output)** modelį ir **Proof-of-Work (PoW)** konsensuso mechanizmą. Sistema generuoja vartotojus, kuria transakcijas, formuoja blokus ir juos "kasa" naudojant modifikuotą maišos funkciją **ArchasHasher** iš 1-os užduoties.
-
-### Pagrindinės savybės
-- **50 vartotojų** su atsitiktiniais balansais (100–1,000,000)
+## Pagrindinės savybės
+- **50 (numatytų) vartotojų** su atsitiktiniais balansais (100–1,000,000)
 - **UTXO modelis** su išsamiu nepanaudotų transakcijų išvesties sekimu
 - **Merkle Tree** transakcijų hash'avimui
 - **Proof-of-Work** su difficulty = 3 (hash'as prasideda `000...`)
-- **Lygiagretus kasimas** su 12 darbuotojų (workers)
+- **Lygiagretus kasimas** su 12 worker'ių
 - **Thread-safe** operacijos su `sync.RWMutex`
 - **CLI sąsaja** su interaktyvia valdymo konsole
 
-### Įgyvendinti reikalavimai
-- UTXO modelio realizavimas (+0.5 balo)
-- Lygiagretus kasimo procesas v0.2 versijoje (+0.5 balo)
+## Įgyvendinti reikalavimai
+- UTXO modelio realizavimas
+- Lygiagretus kasimo procesas v0.2 versijoje
 - Merkle Tree su tikru Merkle Root Hash
 - Transakcijų validacija (balansų tikrinimas, double-spend prevencija)
 - OOP principų taikymas (enkapsuliacija, konstruktoriai, interfaces)
-
----
-
-## Funkcionalumas
-
-### Versija v0.1 (2025-10-29)
-
-**Pagrindinė realizacija:**
-- **Centralizuota blokų grandinė** su modifikuota ArchasHasher maišos funkcija
-- **Vartotojų generavimas** – 50 vartotojų su atsitiktiniais balansais
-- **Genesis blokas** – pradinis blokas su fondų paskirstymu vartotojams
-- **Transakcijų kūrimas** – atsitiktinių transakcijų generavimas tarp vartotojų
-- **Proof-of-Work kasimas** – hash'o paieška su `difficulty = 3`
-- **Konsolės išvestis** – blokų kasimo proceso vizualizacija
-
-**Realizuotos funkcijos:**
-```go
-// Blockchain struktūra
-type Blockchain struct {
-    blocks      []Block
-    chainMutex  *sync.RWMutex
-    txGenMutex  *sync.Mutex
-    utxoTracker *UTXOTracker
-    hasher      Hasher
-}
-```
-
-### Versija v0.2
-
-**Naujos funkcijos:**
-- **Merkle Tree implementacija** (`internal/merkletree/merkletree.go`)
-  - Rekursyvi medžio konstrukcija
-  - Tikras Merkle Root Hash skaičiavimas
-  - Transakcijų autentiškumo tikrinimas
-  
-- **Transakcijų validacija** (`ValidateBlockTransactions`)
-  - Balansų tikrinimas per UTXO tracker
-  - UTXO egzistavimo patikra
-  - Double-spend prevencija bloko viduje
-  - Input/output sumų palyginimas
-  - Overflow apsauga
-  
-- **Lygiagretus kasimas** (`MineBlocks`)
-  - 12 goroutine'ų kasa blokus lygiagrečiai
-  - Context-based atšaukimas
-  - Atomic counter'is suskaičiuoja iškastus blokus
-  - Thread-safe blockchain prieiga
-  
-- **Thread-safe UTXO tracker**
-  - `sync.RWMutex` užtikrina thread-safety
-  - Realaus laiko balansų sekimas
-  - UTXO set atnaujinimas kiekvieno bloko metu
-
-**Papildymai:**
-- Patobulinta kodo struktūra su geresnėmis OOP praktikomis
-- Race condition'ų pašalinimas
-- Goroutine leak'ų prevencija
-- Išsamus README su pavyzdžiais
 
 ---
 
@@ -120,7 +58,7 @@ go build -o bin/cli ./cmd/cli
 Sistema automatiškai:
 1. Sugeneruos 50 vartotojų su atsitiktiniais balansais (100–1,000,000)
 2. Sukurs genesis bloką su pradiniais fondais
-3. Iškasa 5 blokus po 100 transakcijų kiekviename
+3. Iškas 5 blokus po 100 transakcijų kiekviename
 4. Parodys interaktyvią meniu sistemą
 
 ### CLI komandos pavyzdys
@@ -154,20 +92,22 @@ Sistema automatiškai:
 
 **Genesis bloko kasimas:**
 ```
-2025/11/07 15:23:45 Version: 1
-2025/11/07 15:23:45 Difficulty: 3
-2025/11/07 15:23:45 Generating genesis block...
-2025/11/07 15:23:47 Found a POW hash successfully with nonce: 234567
-2025/11/07 15:23:47 Added genesis block successfully
+2025/11/07 00:49:40 Version: 1
+2025/11/07 00:49:40 Difficulty: 3
+2025/11/07 00:49:40 User count: 50
+2025/11/07 00:49:40 Generating genesis block...
+2025/11/07 00:49:40 Found a POW hash successfully with nonce: 1278
+2025/11/07 00:49:40 Added genesis block successfully
+
 ```
 
 **Lygiagretus blokų kasimas:**
 ```
-2025/11/07 15:23:50 Worker 3 mined block at index 1 (block #1) with 100 transactions and nonce 156789
-2025/11/07 15:23:52 Worker 7 mined block at index 2 (block #2) with 100 transactions and nonce 298456
-2025/11/07 15:23:54 Worker 1 mined block at index 3 (block #3) with 100 transactions and nonce 445623
-2025/11/07 15:23:56 Worker 5 mined block at index 4 (block #4) with 100 transactions and nonce 589012
-2025/11/07 15:23:58 Worker 9 mined block at index 5 (block #5) with 100 transactions and nonce 723456
+2025/11/07 00:49:40 Worker 11 mined block at index 1 (block #1) with 100 transactions and nonce 568
+2025/11/07 00:49:40 Worker 9 mined block at index 2 (block #2) with 100 transactions and nonce 317
+2025/11/07 00:49:41 Worker 1 mined block at index 3 (block #3) with 100 transactions and nonce 433
+2025/11/07 00:49:41 Worker 9 mined block at index 4 (block #4) with 100 transactions and nonce 212
+2025/11/07 00:49:41 Worker 1 mined block at index 5 (block #5) with 100 transactions and nonce 203
 ```
 
 **Balansų peržiūra:**
@@ -177,8 +117,8 @@ Sistema automatiškai:
 ╠════════════════════════════════╦═══════════════╦══════════════════════════════════════════╣
 ║            NAME                ║    BALANCE    ║              PUBLIC KEY                  ║
 ╠════════════════════════════════╬═══════════════╬══════════════════════════════════════════╣
-║ Alice                          ║       856234  ║ 3a7f9e2c1b8d4f6e0a5c9b7d3e1f8a2c4b6d    ║
-║ Bob                            ║       423156  ║ 8f2e4a6c1d9b5e7a3c8f1b4d6a9e2c5f7b    ║
+║ Alice                          ║       856234  ║ 3a7f9e2c1b8d4f6e0a5c9b7d3e1f8a2c4b6d     ║
+║ Bob                            ║       423156  ║ 8f2e4a6c1d9b5e7a3c8f1b4d6a9e2c5f7b       ║
 ...
 ╚════════════════════════════════╩═══════════════╩══════════════════════════════════════════╝
 ```
@@ -190,90 +130,157 @@ Sukurkite `.env` failą projekto šakniniame kataloge:
 BLOCK_VERSION=1
 BLOCK_DIFFICULTY=3
 PORT=8080
+USER_COUNT=50
 ```
 
 Parametrai:
 - `BLOCK_VERSION` – bloko versijos numeris
 - `BLOCK_DIFFICULTY` – kasimo sudėtingumas (kiek nulių hash'o pradžioje)
 - `PORT` – HTTP API portas (ateityje)
+- `USER_COUNT` – sugeneruojamų vartotojų skaičius (numatyta 50)
 ---
 
 ## Sistemos architektūra
 
 ### Pagrindinės struktūros
 
-#### 1. Blockchain
+#### 1. Blockchain (su enkapsuliacija)
 ```go
 type Blockchain struct {
-    blocks      []Block          // Blokų grandinė
-    chainMutex  *sync.RWMutex    // Thread-safety blokų sąrašui
-    txGenMutex  *sync.Mutex      // Thread-safety transakcijų generavimui
-    utxoTracker *UTXOTracker     // UTXO sekimo sistema
-    hasher      Hasher           // Maišos funkcijos interface
+    blocks      []Block          // Blokų grandinė (private)
+    chainMutex  *sync.RWMutex    // Thread-safety blokų sąrašui (private)
+    txGenMutex  *sync.Mutex      // Thread-safety transakcijų generavimui (private)
+    utxoTracker *UTXOTracker     // UTXO sekimo sistema (private)
+    hasher      Hasher           // Maišos funkcijos interface (private)
 }
+
+// Prieiga per metodus:
+func (bch *Blockchain) GetBlock(index int) (Block, error)
+func (bch *Blockchain) GetLatestBlock() (Block, error)
+func (bch *Blockchain) AddBlock(b Block) error
+func (bch *Blockchain) Len() int
 ```
 
-#### 2. Block
+#### 2. Block (su enkapsuliacija)
 ```go
 type Block struct {
-    header Header   // Bloko antraštė
-    body   Body     // Bloko turinys (transakcijos)
+    header Header   // Bloko antraštė (private)
+    body   Body     // Bloko turinys (private)
 }
 
-type Header struct {
-    version    uint32    // Bloko versija
-    timestamp  uint32    // Sukūrimo laikas
-    prevHash   Hash32    // Ankstesnio bloko hash
-    merkleRoot Hash32    // Merkle Tree šaknies hash
-    difficulty uint32    // Kasimo sudėtingumas
-    nonce      uint32    // PoW nonce reikšmė
-}
+// Prieiga per getter/setter metodus:
+func (b *Block) GetHeader() Header
+func (b *Block) SetHeader(h Header)
+func (b *Block) GetBody() Body
+func (b *Block) SetBody(body Body)
 ```
 
-#### 3. Transaction (UTXO modelis)
+#### 3. Header (visi laukai private)
+```go
+type Header struct {
+    version    uint32    // Bloko versija (private)
+    timestamp  uint32    // Sukūrimo laikas (private)
+    prevHash   Hash32    // Ankstesnio bloko hash (private)
+    merkleRoot Hash32    // Merkle Tree šaknies hash (private)
+    difficulty uint32    // Kasimo sudėtingumas (private)
+    nonce      uint32    // PoW nonce reikšmė (private)
+}
+
+// Prieiga per getter/setter metodus:
+func (h *Header) GetVersion() uint32
+func (h *Header) SetVersion(v uint32)
+func (h *Header) GetTimestamp() uint32
+func (h *Header) SetTimestamp(t uint32)
+func (h *Header) GetPrevHash() Hash32
+func (h *Header) SetPrevHash(hash Hash32)
+func (h *Header) GetMerkleRoot() Hash32
+func (h *Header) SetMerkleRoot(root Hash32)
+func (h *Header) GetDifficulty() uint32
+func (h *Header) SetDifficulty(d uint32)
+func (h *Header) GetNonce() uint32
+func (h *Header) SetNonce(n uint32)
+```
+
+#### 4. Body (su enkapsuliacija)
+```go
+type Body struct {
+    transactions Transactions   // Transakcijų sąrašas (private)
+}
+
+// Prieiga per getter/setter metodus:
+func (b *Body) GetTransactions() Transactions
+func (b *Body) SetTransactions(txs Transactions)
+```
+
+#### 5. Transaction (UTXO modelis - public laukai)
 ```go
 type Transaction struct {
-    TxID    Hash32      // Transakcijos hash
-    Inputs  []TxInput   // Įvestys (panaudojami UTXO)
-    Outputs []TxOutput  // Išvestys (nauji UTXO)
+    TxID    Hash32      // Transakcijos hash (public)
+    Inputs  []TxInput   // Įvestys - panaudojami UTXO (public)
+    Outputs []TxOutput  // Išvestys - nauji UTXO (public)
 }
 
 type TxInput struct {
-    Prev Outpoint  // Nuoroda į panaudojamą UTXO
-    Sig  []byte    // Parašas
+    Prev Outpoint  // Nuoroda į panaudojamą UTXO (public)
+    Sig  []byte    // Parašas (public)
 }
 
 type TxOutput struct {
-    To    Hash32    // Gavėjo adresas (public key)
-    Value uint32    // Suma
+    To    Hash32    // Gavėjo adresas/public key (public)
+    Value uint32    // Suma (public)
+}
+
+type Outpoint struct {
+    TxID  Hash32    // Transakcijos ID (public)
+    Index uint32    // Output indeksas (public)
 }
 
 type UTXO struct {
-    Out   Outpoint  // Transakcijos ID ir output index
-    To    Hash32    // Savininko adresas
-    Value uint32    // Suma
+    Out   Outpoint  // Transakcijos ID ir output index (public)
+    To    Hash32    // Savininko adresas (public)
+    Value uint32    // Suma (public)
 }
 ```
 
-#### 4. UTXOTracker
+#### 6. UTXOTracker (su enkapsuliacija)
 ```go
 type UTXOTracker struct {
-    utxoSet   map[Outpoint]UTXO  // UTXO rinkinys
-    UTXOMutex *sync.RWMutex      // Thread-safety
+    utxoSet   map[Outpoint]UTXO  // UTXO rinkinys (private)
+    UTXOMutex *sync.RWMutex      // Thread-safety (private - bet pavadinimas su didžiąja)
 }
+
+// Prieiga per metodus:
+func (t *UTXOTracker) GetUTXO(outpoint Outpoint) (UTXO, bool)
+func (t *UTXOTracker) GetUTXOsForAddress(address Hash32) []UTXO
+func (t *UTXOTracker) GetBalance(address Hash32) uint32
+func (t *UTXOTracker) ScanBlock(b Block, hasher Hasher)
 ```
 
-#### 5. MerkleTree
+#### 7. MerkleTree (public struktūra)
 ```go
 type MerkleTree struct {
-    Root *Node    // Medžio šaknis
+    Root *Node    // Medžio šaknis (public)
 }
 
 type Node struct {
-    Val   Hash32   // Hash reikšmė
-    Left  *Node    // Kairysis vaikas
-    Right *Node    // Dešinysis vaikas
+    Val   Hash32   // Hash reikšmė (public)
+    Left  *Node    // Kairysis vaikas (public)
+    Right *Node    // Dešinysis vaikas (public)
 }
+```
+
+#### 8. User
+```go
+type User struct {
+    Id        uint32    // Unikalus ID (public)
+    Name      string    // Vardas (public)
+    CreatedAt uint32    // Sukūrimo laikas (public)
+    PublicKey Hash32    // Viešasis raktas/adresas (public)
+}
+
+// Metodai:
+func NewUser(name string) *User
+func (u *User) Sign(hash Hash32) ([]byte, error)
 ```
 
 ---
@@ -297,12 +304,19 @@ func GenerateUsers(names []string, n int) []User {
 **Vartotojo struktūra:**
 ```go
 type User struct {
-    Id        uint32    // Unikalus ID
-    Name      string    // Vardas
-    CreatedAt uint32    // Sukūrimo laikas
-    PublicKey Hash32    // Viešasis raktas (adresas)
+    Id        uint32    // Unikalus ID (public)
+    Name      string    // Vardas (public)
+    CreatedAt uint32    // Sukūrimo laikas (public)
+    PublicKey Hash32    // Viešasis raktas/adresas (public)
 }
+
+// Metodai:
+func NewUser(name string) *User
+func (u *User) Sign(hash Hash32) ([]byte, error)
 ```
+
+**Pastaba:** Normalioje sistemoje User struktūra turėtų ir `PrivateKey` lauką, 
+bet šiame projekte naudojamas supaprastintas parašų modelis.
 
 **Public key generavimas:**
 - Naudojamas ArchasHasher
@@ -390,8 +404,6 @@ func (bch *Blockchain) GenerateRandomTransactions(users []User, low, high, n int
         outputs = append(outputs, TxOutput{Value: change, To: sender.PublicKey})
     }
     
-    // 5. Pasirašoma ir hash'uojama
-    // ...
 }
 ```
 
@@ -408,8 +420,7 @@ func NewMerkleTree(hashes []Hash32) *MerkleTree {
     for i, h := range hashes {
         nodes[i] = &Node{Val: h}
     }
-    
-    // Rekursyviai jungiami lapai iki lieka vienas Root
+	
     root := buildTree(nodes)
     return &MerkleTree{Root: root}
 }
@@ -451,26 +462,22 @@ func (h Header) FindValidNonce(ctx context.Context, hasher Hasher) (uint32, Hash
     var nonce uint32 = 0
     
     for {
-        // Tikrinama, ar procesas neatšauktas
         if err := ctx.Err(); err != nil {
             return 0, Hash32{}, err
         }
         
-        // Hash'uojama su nauju nonce
         h.SetNonce(nonce)
         hash, err := h.Hash(hasher)
         if err != nil {
             return 0, Hash32{}, err
         }
-        
-        // Tikrinama, ar hash atitinka difficulty
+		
         if IsHashValid(hash, h.GetDifficulty()) {
             return nonce, hash, nil
         }
         
         nonce++
         
-        // Overflow apsauga
         if nonce == ^uint32(0) {
             return 0, Hash32{}, errors.New("nonce overflow")
         }
@@ -485,20 +492,17 @@ func IsHashValid(hash Hash32, diff uint32) bool {
         return true
     }
     
-    // Skaičiuojamas reikiamų nulių skaičius
     bits := diff * 4  // difficulty * 4 bitai
     fullBytes := bits / 8
     remBits := bits % 8
-    
-    // Tikrinami pilni baitai
+	
     var zero [32]byte
     if fullBytes > 0 {
         if !bytes.Equal(hash[:fullBytes], zero[:fullBytes]) {
             return false
         }
     }
-    
-    // Tikrinami likusieji bitai
+	
     if remBits == 0 {
         return true
     }
@@ -538,26 +542,22 @@ func (bch *Blockchain) MineBlocks(parentCtx context.Context, blockCount, txCount
                     return
                 }
                 
-                // Generuoti transakcijas
                 txs, err := bch.GenerateRandomTransactions(users, low, high, txCount)
                 if err != nil {
                     continue
                 }
                 
-                // Generuoti ir kasti bloką
                 body := NewBody(txs)
                 blk, err := bch.GenerateBlock(ctx, body, version, difficulty)
                 if err != nil {
                     continue
                 }
                 
-                // Pridėti bloką (thread-safe)
                 err = bch.AddBlock(blk)
                 if err != nil {
                     continue
                 }
-                
-                // Atnaujinti skaitiklį (atomic)
+				
                 mined := totalMined.Add(1)
                 log.Printf("Worker %d mined block #%d\n", workerID, mined)
                 
@@ -575,12 +575,7 @@ func (bch *Blockchain) MineBlocks(parentCtx context.Context, blockCount, txCount
     return nil
 }
 ```
-
-**Kodėl 12 workers?**
-- Modernus CPU turi 8-16 core'ų
-- 12 suteikia gerą balansą tarp paralelizmo ir overhead'o
-- Kasimas yra CPU-intensive, tad daugiau nei core'ų nėra efektyvu
-
+* 12 worker'ių pasirinkau iš paprastumo, nes mano kompiuteryje yra 12 core'ų, tad realiai vienu metu gali dirbti 12 operacijų paraleliai.
 ### 7. Transakcijų validacija
 
 **ValidateBlockTransactions:**
@@ -654,48 +649,6 @@ func (bch *Blockchain) ValidateBlockTransactions(b Block) error {
     return nil
 }
 ```
-
-### 8. Thread-Safety mechanizmai
-
-**1. Blockchain mutex:**
-```go
-// Skaitymas (Read Lock)
-func (bch *Blockchain) GetLatestBlock() (Block, error) {
-    bch.chainMutex.RLock()
-    defer bch.chainMutex.RUnlock()
-    // ...
-}
-
-// Rašymas (Write Lock)
-func (bch *Blockchain) AddBlock(b Block) error {
-    bch.chainMutex.Lock()
-    defer bch.chainMutex.Unlock()
-    // ...
-}
-```
-
-**2. UTXO Tracker mutex:**
-```go
-func (t *UTXOTracker) GetBalance(address Hash32) uint32 {
-    t.UTXOMutex.RLock()
-    defer t.UTXOMutex.RUnlock()
-    // ...
-}
-
-func (t *UTXOTracker) ScanBlock(b Block, hasher Hasher) {
-    t.UTXOMutex.Lock()
-    defer t.UTXOMutex.Unlock()
-    // ...
-}
-```
-
-**3. Atomic operacijos:**
-```go
-totalMined := atomic.Int64{}
-// ...
-mined := totalMined.Add(1)  // Thread-safe increment
-```
-
 ## AI pagalbos naudojimas
 
 ### Kodavimas
@@ -830,8 +783,3 @@ func (bch *Blockchain) AddBlock(b Block) error {
 ```
 
 ---
-
-
-**Autorius:** Kristupas Arifovas  
-**GitHub:** [github.com/Quikmove/blockchain-uzd2](https://github.com/Quikmove/blockchain-uzd2)
-
