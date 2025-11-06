@@ -38,13 +38,10 @@ func (pc *PeriodicCounter) Reset() {
 }
 
 type ArchasHasher struct {
-	pc *PeriodicCounter
 }
 
 func NewArchasHasher() *ArchasHasher {
-	return &ArchasHasher{
-		pc: NewPeriodicCounter(5),
-	}
+	return &ArchasHasher{}
 }
 
 func (h *ArchasHasher) rotateLeft8(a, b byte) byte {
@@ -52,7 +49,8 @@ func (h *ArchasHasher) rotateLeft8(a, b byte) byte {
 }
 
 func (h *ArchasHasher) collapse(bytes *[]byte, collapseSize int) error {
-	h.pc.Reset()
+	pc := NewPeriodicCounter(5)
+	pc.Reset()
 	if collapseSize == 0 || len(*bytes) <= collapseSize {
 		return fmt.Errorf("invalid collapse size")
 	}
@@ -68,8 +66,8 @@ func (h *ArchasHasher) collapse(bytes *[]byte, collapseSize int) error {
 			if len(excess) > 0 {
 				exIdx = cnt % len(excess)
 			}
-			val := (h.pc.GetCount() + int(excess[exIdx])) % 256
-			h.pc.Increment()
+			val := (pc.GetCount() + int(excess[exIdx])) % 256
+			pc.Increment()
 
 			switch val % 6 {
 			case 0:
@@ -139,7 +137,7 @@ func (h *ArchasHasher) Hash(data []byte) ([]byte, error) {
 	}
 	biasLeading := 4
 	biasBits := 3
-	biasPeriod := 290
+	biasPeriod := 291331293
 	biasTrigger := 0
 
 	if biasBits > 0 && biasBits <= 8 && biasPeriod > 0 {
@@ -153,26 +151,16 @@ func (h *ArchasHasher) Hash(data []byte) ([]byte, error) {
 		}
 
 		if (decision % biasPeriod) == biasTrigger {
-			mask := byte((1 << biasBits) - 1)
 			for i := 0; i < biasLeading && i < len(block); i++ {
+
+				bitsToKeep := biasBits + i
+				if bitsToKeep > 8 {
+					bitsToKeep = 8
+				}
+				mask := byte((1 << bitsToKeep) - 1)
 				block[i] &= mask
 			}
 		}
 	}
-	return block, nil
-}
-
-func (h *ArchasHasher) HashVariant1(data []byte) ([]byte, error) {
-	block, err := h.Hash(data)
-	if err != nil {
-		return nil, err
-	}
-
-	biasBase := len(data) & 0xff
-	for i := 0; i < 4 && i < len(block); i++ {
-		small := byte((biasBase + i*13 + int(block[(i+7)%len(block)])) % 16)
-		block[i] = block[i] - small
-	}
-
 	return block, nil
 }
