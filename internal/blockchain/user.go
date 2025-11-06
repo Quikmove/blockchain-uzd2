@@ -36,7 +36,14 @@ func NewUser(name string) *User {
 		PublicKey: pk,
 	}
 }
-
+func GetUserByPublicKey(users []User, pk Hash32) (User, error) {
+	for _, u := range users {
+		if u.PublicKey == pk {
+			return u, nil
+		}
+	}
+	return User{}, fmt.Errorf("user with public key %x not found", pk)
+}
 func GenerateUsers(names []string, n int) []User {
 	var Users []User
 	namesLen := len(names)
