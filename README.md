@@ -670,49 +670,6 @@ func (bch *Blockchain) ValidateBlockTransactions(b Block) error {
 
 ---
 
-## Papildomos užduotys
-
-### UTXO modelio realizavimas (+0.5 balo)
-
-Projektas naudoja **pilną UTXO (Unspent Transaction Output) modelį** vietoj paprastesnio account modelio.
-
-**Implementacija:**
-- Kiekviena transakcija turi `Inputs` (nuorodos į ankstesnius UTXO) ir `Outputs` (nauji UTXO)
-- `UTXOTracker` realiu laiku seka visus nepanaudotus UTXO per `map[Outpoint]UTXO`
-- Genesis bloke sukuriami pradiniai UTXO kiekvienam vartotojui (coinbase transakcijos)
-- Kiekvienos transakcijos metu:
-  - Panaudoti inputs pašalinami iš UTXO set'o
-  - Nauji outputs pridedami prie UTXO set'o
-  - Balansas skaičiuojamas sumuojant visus vartotojo UTXO
-
-**Privalumai:**
-- Tikslus Bitcoin modelio atkartojimas
-- Double-spend prevencija
-- Transakcijų privatumas (naudojami skirtingi UTXO)
-- Greitesnis balansų skaičiavimas (tiesioginė UTXO suma, o ne visų transakcijų peržiūra)
-
-**Failai:**
-- `internal/blockchain/transactions.go` – UTXO struktūros ir logika
-- `internal/blockchain/utxo_tracker.go` – UTXO sekimo sistema
-- `internal/blockchain/generate_funds.go` – Pradinių UTXO generavimas
-
-### Lygiagretus kasimo procesas (+0.5 balo)
-
-Projektas realizuoja **lygiagretus blokų kasimą** su 12 worker goroutines.
-
-**Implementacija (`MineBlocks`):**
-```go
-numWorkers := 12
-totalMined := atomic.Int64{}
-ctx, cancel := context.WithCancel(parentCtx)
-
-for i := range numWorkers {
-    go func(workerID int) {
-        // Kiekvienas worker'is bando kasti blokus
-        // Pirmas, radęs validų hash, prideda bloką
-        // Atomic counter užtikrina, kad neiškasta per daug
-    }(i)
-}
 ```
 
 **Funkcionalumas:**
