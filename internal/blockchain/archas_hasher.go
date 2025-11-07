@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	constant   = "XxFg1yY7HND109623hirD8K8ZjyR3vvzvNnfB2O8rNIaEC4VqJvZyM7--8TzCfu"
-	archas_key = "ARCHAS MATUOLIS"
+	constant  = "XxFg1yY7HND109623hirD8K8ZjyR3vvzvNnfB2O8rNIaEC4VqJvZyM7--8TzCfu"
+	archasKey = "ARCHAS MATUOLIS"
 )
 
 type PeriodicCounter struct {
@@ -48,11 +48,11 @@ func (h *ArchasHasher) rotateLeft8(a, b byte) byte {
 	return bits.RotateLeft8(a, int(b%8))
 }
 
-func (h *ArchasHasher) collapse(bytes *[]byte, collapseSize int) error {
+func (h *ArchasHasher) collapse(bytes *[]byte, collapseSize int) {
 	pc := NewPeriodicCounter(5)
 	pc.Reset()
 	if collapseSize == 0 || len(*bytes) <= collapseSize {
-		return fmt.Errorf("invalid collapse size")
+		panic(fmt.Sprintf("Cannot collapse to size %d from %d", collapseSize, len(*bytes)))
 	}
 
 	excess := make([]byte, len(*bytes)-collapseSize)
@@ -85,7 +85,7 @@ func (h *ArchasHasher) collapse(bytes *[]byte, collapseSize int) error {
 				(*bytes)[i] |= byte(val)
 			}
 
-			b := archas_key[cnt%len(archas_key)]
+			b := archasKey[cnt%len(archasKey)]
 			cnt++
 
 			(*bytes)[i] = h.rotateLeft8((*bytes)[i], b)
@@ -96,10 +96,9 @@ func (h *ArchasHasher) collapse(bytes *[]byte, collapseSize int) error {
 		}
 		excess = excess[1:]
 	}
-	return nil
 }
 
-func (h *ArchasHasher) Hash(data []byte) ([]byte, error) {
+func (h *ArchasHasher) Hash(data []byte) []byte {
 	block := []byte(constant)
 
 	if len(data) > 0 {
@@ -117,21 +116,18 @@ func (h *ArchasHasher) Hash(data []byte) ([]byte, error) {
 	}
 
 	for i := 0; i < len(block)-1; i++ {
-		block[i] ^= archas_key[i%len(archas_key)]
+		block[i] ^= archasKey[i%len(archasKey)]
 
 		block[i+1] = (block[i+1] << 4) | (block[i+1] >> 4) ^ (block[i] + byte(i))
 	}
 
-	err := h.collapse(&block, 32)
-	if err != nil {
-		return nil, err
-	}
+	h.collapse(&block, 32)
 
 	for r := 0; r < 3; r++ {
 		for i := range block {
 			j := (i*7 + r) % len(block)
 			block[i] ^= h.rotateLeft8(block[j], byte((r+i)&0xff))
-			block[i] += archas_key[(i+r)%len(archas_key)]
+			block[i] += archasKey[(i+r)%len(archasKey)]
 			block[i] = h.rotateLeft8(block[i], block[(i*3+1)%len(block)])
 		}
 	}
@@ -162,5 +158,5 @@ func (h *ArchasHasher) Hash(data []byte) ([]byte, error) {
 			}
 		}
 	}
-	return block, nil
+	return block
 }

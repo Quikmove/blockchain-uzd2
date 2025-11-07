@@ -20,7 +20,6 @@ func CreateGenesisBlock(ctx context.Context, txs Transactions, conf *config.Conf
 	)
 	body := NewBody(txs)
 	genesisBlock := NewBlock(header, body)
-
 	nonce, _, err := genesisBlock.GetHeader().FindValidNonce(ctx, hasher)
 	if err != nil {
 		return Block{}, err

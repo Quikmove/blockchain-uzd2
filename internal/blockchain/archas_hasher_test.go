@@ -7,6 +7,15 @@ import (
 	"testing"
 )
 
+func TestDeterminism(t *testing.T) {
+	hasher := NewArchasHasher()
+	word := []byte("hello")
+	hash1 := hasher.Hash(word)
+	hash2 := hasher.Hash(word)
+	if !strings.EqualFold(hex.EncodeToString(hash1), hex.EncodeToString(hash2)) {
+		t.Errorf("Hashes do not match for the same input")
+	}
+}
 func bitDiffHex(hex1, hex2 string) (int, error) {
 	bytes1, err := hex.DecodeString(hex1)
 	if err != nil {
@@ -28,18 +37,14 @@ func TestAvalancheSingleCharacter(t *testing.T) {
 	hasher := NewArchasHasher()
 	base := []byte(strings.Repeat("a", 10000))
 
-	hash1Bytes, err := hasher.Hash(base)
-	if err != nil {
-		t.Fatalf("Failed to hash base string: %v", err)
-	}
+	hash1Bytes := hasher.Hash(base)
+
 	hash1 := hex.EncodeToString(hash1Bytes)
 
 	base[4321] = 'b'
 
-	hash2Bytes, err := hasher.Hash(base)
-	if err != nil {
-		t.Fatalf("Failed to hash mutated string: %v", err)
-	}
+	hash2Bytes := hasher.Hash(base)
+
 	hash2 := hex.EncodeToString(hash2Bytes)
 
 	diff, err := bitDiffHex(hash1, hash2)
@@ -56,10 +61,7 @@ func TestAvalancheBitFlipsAcrossMessage(t *testing.T) {
 	hasher := NewArchasHasher()
 	base := "Hash functions should react strongly to minimal perturbations."
 
-	originalBytes, err := hasher.Hash([]byte(base))
-	if err != nil {
-		t.Fatalf("Failed to hash base string: %v", err)
-	}
+	originalBytes := hasher.Hash([]byte(base))
 	originalHash := hex.EncodeToString(originalBytes)
 
 	totalDiff := 0
@@ -68,10 +70,8 @@ func TestAvalancheBitFlipsAcrossMessage(t *testing.T) {
 		mutated := []byte(base)
 		mutated[i] ^= 0x01 // Flip one bit
 
-		mutatedHashBytes, err := hasher.Hash(mutated)
-		if err != nil {
-			t.Fatalf("Failed to hash mutated string at position %d: %v", i, err)
-		}
+		mutatedHashBytes := hasher.Hash(mutated)
+
 		mutatedHash := hex.EncodeToString(mutatedHashBytes)
 
 		diff, err := bitDiffHex(originalHash, mutatedHash)
@@ -102,16 +102,11 @@ func TestHasherComparison(t *testing.T) {
 	t.Logf("|%-11s|%-66s|%-66s|", strings.Repeat("-", 11), strings.Repeat("-", 66), strings.Repeat("-", 66))
 
 	for _, input := range inputs {
-		archasHashBytes, err := archasHasher.Hash([]byte(input))
-		if err != nil {
-			t.Fatalf("ArchasHasher failed for input '%s': %v", input, err)
-		}
+		archasHashBytes := archasHasher.Hash([]byte(input))
 		archasHash := hex.EncodeToString(archasHashBytes)
 
-		sha256HashBytes, err := sha256Hasher.Hash([]byte(input))
-		if err != nil {
-			t.Fatalf("SHA256Hasher failed for input '%s': %v", input, err)
-		}
+		sha256HashBytes := sha256Hasher.Hash([]byte(input))
+
 		sha256Hash := hex.EncodeToString(sha256HashBytes)
 
 		t.Logf("| %-9s | %-64s | %-64s |", input, archasHash, sha256Hash)

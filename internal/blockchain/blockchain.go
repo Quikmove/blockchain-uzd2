@@ -24,19 +24,19 @@ type Block struct {
 	body   Body
 }
 
-func (b *Block) GetHeader() Header {
+func (b Block) GetHeader() Header {
 	return b.header
 }
 
-func (b *Block) SetHeader(h Header) {
+func (b Block) SetHeader(h Header) {
 	b.header = h
 }
 
-func (b *Block) GetBody() Body {
+func (b Block) GetBody() Body {
 	return b.body
 }
 
-func (b *Block) SetBody(body Body) {
+func (b Block) SetBody(body Body) {
 	b.body = body
 }
 
@@ -54,7 +54,7 @@ func (b Block) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (b *Block) UnmarshalJSON(data []byte) error {
+func (b Block) UnmarshalJSON(data []byte) error {
 	var temp struct {
 		Header Header `json:"header"`
 		Body   Body   `json:"body"`
@@ -153,7 +153,7 @@ func (h Header) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (h *Header) UnmarshalJSON(data []byte) error {
+func (h Header) UnmarshalJSON(data []byte) error {
 	var temp struct {
 		Version    uint32 `json:"version"`
 		Timestamp  uint32 `json:"timestamp"`
@@ -198,7 +198,7 @@ func (b Body) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (b *Body) UnmarshalJSON(data []byte) error {
+func (b Body) UnmarshalJSON(data []byte) error {
 	var temp struct {
 		Transactions Transactions `json:"transactions"`
 	}
@@ -255,18 +255,12 @@ func (bch *Blockchain) AddBlock(b Block) error {
 
 	if height != 0 {
 		tip := bch.blocks[height-1]
-		tipHash, err := bch.CalculateHash(tip)
-		if err != nil {
-			return fmt.Errorf("failed to calculate tip hash: %w", err)
-		}
+		tipHash := bch.CalculateHash(tip)
 		header := b.GetHeader()
 		if tipHash != header.GetPrevHash() {
 			return errors.New("new block's prev hash does not match tip hash")
 		}
-		hash, err := bch.CalculateHash(b)
-		if err != nil {
-			return fmt.Errorf("failed to calculate new block hash: %w", err)
-		}
+		hash := bch.CalculateHash(b)
 		if !IsHashValid(hash, header.GetDifficulty()) {
 			return errors.New("new block hash does not meet difficulty requirements")
 		}
@@ -372,19 +366,16 @@ func (h Header) Serialize() []byte {
 
 	return buf.Bytes()
 }
-func (h Header) Hash(hasher Hasher) (Hash32, error) {
+func (h Header) Hash(hasher Hasher) Hash32 {
 	b := h.Serialize()
-	x, err := hasher.Hash(b)
-	if err != nil {
-		return Hash32{}, err
-	}
-	y, err := hasher.Hash(x)
-	if err != nil {
-		return Hash32{}, err
-	}
+
+	x := hasher.Hash(b)
+
+	y := hasher.Hash(x)
+
 	var hash Hash32
 	copy(hash[:], y)
-	return hash, nil
+	return hash
 }
 func reverse32(in Hash32) []byte {
 	out := make([]byte, 32)
@@ -399,30 +390,23 @@ func (b Body) MerkleRootHash(hasher Hasher) Hash32 {
 
 type Transactions []Transaction
 
-func HashBytes(bytes []byte, hasher Hasher) (Hash32, error) {
-	h, err := hasher.Hash(bytes)
-	if err != nil {
-		return Hash32{}, err
-	}
+func HashBytes(bytes []byte, hasher Hasher) Hash32 {
+	h := hasher.Hash(bytes)
+
 	var hash32 Hash32
 	copy(hash32[:], h)
-	return hash32, nil
+	return hash32
 }
 
 func HashString(str string, hasher Hasher) (Hash32, error) {
-	h, err := HashBytes([]byte(str), hasher)
-	if err != nil {
-		return Hash32{}, err
-	}
+	h := HashBytes([]byte(str), hasher)
+
 	return h, nil
 }
 
-func (bch *Blockchain) CalculateHash(block Block) (Hash32, error) {
-	hash, err := block.GetHeader().Hash(bch.hasher)
-	if err != nil {
-		return Hash32{}, err
-	}
-	return hash, nil
+func (bch *Blockchain) CalculateHash(block Block) Hash32 {
+	hash := block.GetHeader().Hash(bch.hasher)
+	return hash
 }
 func IsHashValid(hash Hash32, diff uint32) bool {
 	if diff == 0 {
@@ -459,20 +443,14 @@ func (bch *Blockchain) IsBlockValid(newBlock Block) bool {
 		panic(err)
 	}
 
-	oldBlockHash, err := bch.CalculateHash(oldBlock)
-	if err != nil {
-		return false
-	}
+	oldBlockHash := bch.CalculateHash(oldBlock)
 	header := newBlock.GetHeader()
 	if oldBlockHash != header.GetPrevHash() {
 		return false
 	}
 
 	diff := header.GetDifficulty()
-	hash, err := bch.CalculateHash(newBlock)
-	if err != nil {
-		return false
-	}
+	hash := bch.CalculateHash(newBlock)
 
 	return IsHashValid(hash, diff)
 }
@@ -594,10 +572,7 @@ func (bch *Blockchain) ValidateBlockTransactions(b Block) error {
 }
 func (h Header) FindValidNonce(ctx context.Context, hasher Hasher) (uint32, Hash32, error) {
 	if h.GetDifficulty() == 0 {
-		hash, err := h.Hash(hasher)
-		if err != nil {
-			return 0, Hash32{}, err
-		}
+		hash := h.Hash(hasher)
 		return h.GetNonce(), hash, nil
 	}
 	if h.GetMerkleRoot() == (Hash32{}) {
@@ -611,10 +586,7 @@ func (h Header) FindValidNonce(ctx context.Context, hasher Hasher) (uint32, Hash
 			return 0, Hash32{}, err
 		}
 		h.SetNonce(nonce)
-		hash, err := h.Hash(hasher)
-		if err != nil {
-			return 0, Hash32{}, err
-		}
+		hash := h.Hash(hasher)
 		if IsHashValid(hash, h.GetDifficulty()) {
 			return nonce, hash, nil
 		}
@@ -639,7 +611,7 @@ func (bch *Blockchain) GenerateRandomTransactions(users []User, low, high, n int
 
 	var generatedTxs Transactions
 	userAmount := len(users)
-	usedOutpoints := make(map[Outpoint]bool, 0)
+	usedOutpoints := make(map[Outpoint]bool)
 
 	maxAttempts := n * 10
 	attempts := 0
@@ -745,10 +717,7 @@ func (bch *Blockchain) GenerateBlock(ctx context.Context, body Body, version uin
 	t := time.Now()
 
 	newHeader.SetVersion(version)
-	prevHash, err := bch.CalculateHash(latestBlock)
-	if err != nil {
-		return Block{}, err
-	}
+	prevHash := bch.CalculateHash(latestBlock)
 	newHeader.SetPrevHash(prevHash)
 	newHeader.SetTimestamp(uint32(t.Unix()))
 	newHeader.SetMerkleRoot(body.MerkleRootHash(bch.hasher))

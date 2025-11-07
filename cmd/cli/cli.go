@@ -159,12 +159,7 @@ func main() {
 								prevBlock := blocks[i-1]
 								currentBlock := blocks[i]
 
-								prevHash, err := bch.CalculateHash(prevBlock)
-								if err != nil {
-									fmt.Printf("❌ Block %d: Error calculating previous hash: %v\n", i, err)
-									valid = false
-									continue
-								}
+								prevHash := bch.CalculateHash(prevBlock)
 
 								currentHeader := currentBlock.GetHeader()
 								if prevHash != currentHeader.GetPrevHash() {
@@ -172,12 +167,7 @@ func main() {
 									valid = false
 								}
 
-								currentHash, err := bch.CalculateHash(currentBlock)
-								if err != nil {
-									fmt.Printf("❌ Block %d: Error calculating hash: %v\n", i, err)
-									valid = false
-									continue
-								}
+								currentHash := bch.CalculateHash(currentBlock)
 
 								if !blockchain.IsHashValid(currentHash, currentHeader.GetDifficulty()) {
 									fmt.Printf("❌ Block %d: Hash doesn't meet difficulty requirements!\n", i)
@@ -222,11 +212,8 @@ func main() {
 								fmt.Println("Error:", err)
 								continue
 							}
-							hash, err := bch.CalculateHash(block)
-							if err != nil {
-								fmt.Println("Error calculating hash:", err)
-								continue
-							}
+							hash := bch.CalculateHash(block)
+
 							fmt.Printf("Block Hash at index %d: %x\n", index, hash)
 						case "mineblocks":
 							var numBlocks int

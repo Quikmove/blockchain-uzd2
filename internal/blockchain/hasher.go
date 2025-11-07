@@ -1,5 +1,5 @@
 package blockchain
 
 type Hasher interface {
-	Hash(data []byte) ([]byte, error)
+	Hash(data []byte) []byte
 }

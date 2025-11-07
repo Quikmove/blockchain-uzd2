@@ -41,14 +41,9 @@ func (t *Transaction) SignatureHash(value uint32, to Hash32, hasher Hasher) (Has
 	_ = binary.Write(&buf, binary.LittleEndian, value)
 	buf.Write(to[:])
 
-	h1, err := hasher.Hash(buf.Bytes())
-	if err != nil {
-		return Hash32{}, err
-	}
-	h2, err := hasher.Hash(h1)
-	if err != nil {
-		return Hash32{}, err
-	}
+	h1 := hasher.Hash(buf.Bytes())
+	h2 := hasher.Hash(h1)
+
 	var hash Hash32
 	copy(hash[:], h2)
 	return hash, nil
@@ -84,14 +79,8 @@ func (t *Transaction) Hash(hasher Hasher) (Hash32, error) {
 		return t.TxID, nil
 	}
 	serialized := SerializeTx(t)
-	h1, err := hasher.Hash(serialized)
-	if err != nil {
-		return Hash32{}, err
-	}
-	h2, err := hasher.Hash(h1)
-	if err != nil {
-		return Hash32{}, err
-	}
+	h1 := hasher.Hash(serialized)
+	h2 := hasher.Hash(h1)
 	var hash Hash32
 	copy(hash[:], h2)
 	return hash, nil

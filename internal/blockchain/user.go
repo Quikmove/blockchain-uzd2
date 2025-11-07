@@ -45,14 +45,14 @@ func GetUserByPublicKey(users []User, pk Hash32) (User, error) {
 	return User{}, fmt.Errorf("user with public key %x not found", pk)
 }
 func GenerateUsers(names []string, n int) []User {
-	var Users []User
+	var users []User
 	namesLen := len(names)
 	if namesLen == 0 || n <= 0 {
 		return []User{}
 	}
-	for range n {
+	for i := 0; i < n; i++ {
 		user := NewUser(names[rand.Intn(namesLen)])
-		Users = append(Users, *user)
+		users = append(users, *user)
 	}
-	return Users
+	return users
 }
