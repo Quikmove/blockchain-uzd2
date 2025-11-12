@@ -1,4 +1,4 @@
-package blockchain
+package crypto
 
 import (
 	"encoding/hex"
@@ -12,7 +12,7 @@ func TestDeterminism(t *testing.T) {
 	word := []byte("hello")
 	hash1 := hasher.Hash(word)
 	hash2 := hasher.Hash(word)
-	if !strings.EqualFold(hex.EncodeToString(hash1), hex.EncodeToString(hash2)) {
+	if !strings.EqualFold(hex.EncodeToString(hash1[:]), hex.EncodeToString(hash2[:])) {
 		t.Errorf("Hashes do not match for the same input")
 	}
 }
@@ -39,13 +39,13 @@ func TestAvalancheSingleCharacter(t *testing.T) {
 
 	hash1Bytes := hasher.Hash(base)
 
-	hash1 := hex.EncodeToString(hash1Bytes)
+	hash1 := hex.EncodeToString(hash1Bytes[:])
 
 	base[4321] = 'b'
 
 	hash2Bytes := hasher.Hash(base)
 
-	hash2 := hex.EncodeToString(hash2Bytes)
+	hash2 := hex.EncodeToString(hash2Bytes[:])
 
 	diff, err := bitDiffHex(hash1, hash2)
 	if err != nil {
@@ -62,7 +62,7 @@ func TestAvalancheBitFlipsAcrossMessage(t *testing.T) {
 	base := "Hash functions should react strongly to minimal perturbations."
 
 	originalBytes := hasher.Hash([]byte(base))
-	originalHash := hex.EncodeToString(originalBytes)
+	originalHash := hex.EncodeToString(originalBytes[:])
 
 	totalDiff := 0
 	samples := 0
@@ -72,7 +72,7 @@ func TestAvalancheBitFlipsAcrossMessage(t *testing.T) {
 
 		mutatedHashBytes := hasher.Hash(mutated)
 
-		mutatedHash := hex.EncodeToString(mutatedHashBytes)
+		mutatedHash := hex.EncodeToString(mutatedHashBytes[:])
 
 		diff, err := bitDiffHex(originalHash, mutatedHash)
 		if err != nil {
@@ -103,11 +103,11 @@ func TestHasherComparison(t *testing.T) {
 
 	for _, input := range inputs {
 		archasHashBytes := archasHasher.Hash([]byte(input))
-		archasHash := hex.EncodeToString(archasHashBytes)
+		archasHash := hex.EncodeToString(archasHashBytes[:])
 
 		sha256HashBytes := sha256Hasher.Hash([]byte(input))
 
-		sha256Hash := hex.EncodeToString(sha256HashBytes)
+		sha256Hash := hex.EncodeToString(sha256HashBytes[:])
 
 		t.Logf("| %-9s | %-64s | %-64s |", input, archasHash, sha256Hash)
 	}

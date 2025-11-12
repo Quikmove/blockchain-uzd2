@@ -3,9 +3,12 @@ package blockchain
 import (
 	"math/rand"
 	"sort"
+
+	c "github.com/Quikmove/blockchain-uzd2/internal/crypto"
+	d "github.com/Quikmove/blockchain-uzd2/internal/domain"
 )
 
-func GenerateFundTransactionsForUsers(users []User, low, high uint32, hasher Hasher) (Transactions, error) {
+func GenerateFundTransactionsForUsers(users []d.User, low, high uint32, hasher c.Hasher) (Transactions, error) {
 	var txs Transactions
 	for _, usr := range users {
 		var amount uint32
@@ -35,22 +38,20 @@ func GenerateFundTransactionsForUsers(users []User, low, high uint32, hasher Has
 		sort.Slice(utxos, func(i, j int) bool {
 			return utxos[i] < utxos[j]
 		})
-		var outputs []TxOutput
+		var outputs []d.TxOutput
 		for _, v := range utxos {
-			txOut := TxOutput{
+			txOut := d.TxOutput{
 				Value: v,
 				To:    usr.PublicKey,
 			}
 			outputs = append(outputs, txOut)
 		}
-		tx := Transaction{
+		tx := d.Transaction{
 			Inputs:  nil,
 			Outputs: outputs,
 		}
-		hash, err := tx.Hash(hasher)
-		if err != nil {
-			return nil, err
-		}
+		hash := hasher.Hash(tx.Serialize())
+
 		tx.TxID = hash
 		txs = append(txs, tx)
 	}

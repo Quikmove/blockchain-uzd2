@@ -4,19 +4,20 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+
+	d "github.com/Quikmove/blockchain-uzd2/internal/domain"
 )
 
-type Hash32 [32]byte
 type MerkleTree struct {
 	Root *Node
 }
 type Node struct {
-	Val   Hash32
+	Val   [32]byte
 	Left  *Node
 	Right *Node
 }
 
-func NewMerkleTree(hashes []Hash32) *MerkleTree {
+func NewMerkleTree(hashes []d.Hash32) *MerkleTree {
 	if len(hashes) == 0 {
 		return &MerkleTree{Root: nil}
 	}
@@ -44,7 +45,7 @@ func NewMerkleTree(hashes []Hash32) *MerkleTree {
 	}
 	return &MerkleTree{Root: nodes[0]}
 }
-func doubleHashPair(left, right Hash32) Hash32 {
+func doubleHashPair(left, right [32]byte) [32]byte {
 	var buf [64]byte
 	copy(buf[:32], left[:])
 	copy(buf[32:], right[:])

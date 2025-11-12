@@ -1,57 +1,61 @@
 package blockchain
 
 import (
-	"fmt"
 	"math/rand"
-	"time"
+
+	d "github.com/Quikmove/blockchain-uzd2/internal/domain"
 )
 
-type User struct {
-	Id        uint32 `json:"id"`
-	Name      string `json:"name"`
-	CreatedAt uint32 `json:"created_at"`
-	PublicKey Hash32 `json:"public_key"`
-	// add signing with private key
-}
-
-func (u *User) Sign(hash Hash32) ([]byte, error) {
-	return []byte("signed-" + u.Name), nil
-}
-
-func NewUser(name string) *User {
-	id := userCount.Add(1)
-	created := uint32(time.Now().Unix())
-
-	data := fmt.Sprintf("%d:%s:%d", id, name, time.Now().UnixNano())
-
-	pk, err := HashString(data, NewArchasHasher())
-	if err != nil {
-		panic(err)
+func GetUserByPublicKey(users []d.User, pk []byte) (d.User, error) {
+	if len(pk) == 0 {
+		return d.User{}, d.ErrInvalidPublicKey
 	}
 
-	return &User{
-		Id:        id,
-		Name:      name,
-		CreatedAt: created,
-		PublicKey: pk,
-	}
-}
-func GetUserByPublicKey(users []User, pk Hash32) (User, error) {
 	for _, u := range users {
-		if u.PublicKey == pk {
+		if len(u.PublicKey) != len(pk) {
+			continue
+		}
+		for i, b := range u.PublicKey {
+			if b != pk[i] {
+				break
+			}
 			return u, nil
 		}
 	}
-	return User{}, fmt.Errorf("user with public key %x not found", pk)
+	return d.User{}, d.ErrUserNotFound
 }
-func GenerateUsers(names []string, n int) []User {
-	var users []User
+
+type UserGeneratorService struct {
+	keyGen KeyGenerator
+}
+
+func (ugs *UserGeneratorService) GenerateUsers(names []string, n int) []d.User {
+	var users []d.User
+	id := uint32(1)
 	namesLen := len(names)
+	usedNames := make(map[string]bool)
+
 	if namesLen == 0 || n <= 0 {
-		return []User{}
+		return []d.User{}
 	}
 	for i := 0; i < n; i++ {
-		user := NewUser(names[rand.Intn(namesLen)])
+		name := names[rand.Intn(namesLen)]
+		for usedNames[name] {
+			name = names[rand.Intn(namesLen)]
+		}
+		pubKey, privateKey, err := ugs.keyGen.GenerateKeyPair()
+		if err != nil {
+			panic(err)
+		}
+		usedNames[name] = true
+		user := d.NewUser(
+			id,
+			name,
+			pubKey,
+			privateKey,
+		)
+		id++
+
 		users = append(users, *user)
 	}
 	return users

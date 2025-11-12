@@ -1,4 +1,4 @@
-package blockchain
+package crypto
 
 import (
 	"fmt"
@@ -10,11 +10,13 @@ const (
 	archasKey = "ARCHAS MATUOLIS"
 )
 
+// PeriodicCounter tracks a count that resets after reaching a limit
 type PeriodicCounter struct {
 	count      int
 	countLimit int
 }
 
+// NewPeriodicCounter creates a new periodic counter
 func NewPeriodicCounter(limit int) *PeriodicCounter {
 	if limit < 1 {
 		limit = 1
@@ -22,6 +24,7 @@ func NewPeriodicCounter(limit int) *PeriodicCounter {
 	return &PeriodicCounter{count: 0, countLimit: limit}
 }
 
+// Increment increments the counter, resetting if limit is reached
 func (pc *PeriodicCounter) Increment() {
 	pc.count++
 	if pc.count > pc.countLimit {
@@ -29,17 +32,20 @@ func (pc *PeriodicCounter) Increment() {
 	}
 }
 
+// GetCount returns the current count
 func (pc *PeriodicCounter) GetCount() int {
 	return pc.count
 }
 
+// Reset resets the counter to zero
 func (pc *PeriodicCounter) Reset() {
 	pc.count = 0
 }
 
-type ArchasHasher struct {
-}
+// ArchasHasher implements a custom hash algorithm
+type ArchasHasher struct{}
 
+// NewArchasHasher creates a new Archas hasher
 func NewArchasHasher() *ArchasHasher {
 	return &ArchasHasher{}
 }
@@ -48,20 +54,20 @@ func (h *ArchasHasher) rotateLeft8(a, b byte) byte {
 	return bits.RotateLeft8(a, int(b%8))
 }
 
-func (h *ArchasHasher) collapse(bytes *[]byte, collapseSize int) {
+func (h *ArchasHasher) collapse(bytes []byte, collapseSize int) {
 	pc := NewPeriodicCounter(5)
 	pc.Reset()
-	if collapseSize == 0 || len(*bytes) <= collapseSize {
-		panic(fmt.Sprintf("Cannot collapse to size %d from %d", collapseSize, len(*bytes)))
+	if collapseSize == 0 || len(bytes) <= collapseSize {
+		panic(fmt.Sprintf("Cannot collapse to size %d from %d", collapseSize, len(bytes)))
 	}
 
-	excess := make([]byte, len(*bytes)-collapseSize)
-	copy(excess, (*bytes)[collapseSize:])
-	*bytes = (*bytes)[:collapseSize]
+	excess := make([]byte, len(bytes)-collapseSize)
+	copy(excess, (bytes)[collapseSize:])
+	bytes = (bytes)[:collapseSize]
 
 	for len(excess) > 0 {
 		cnt := 0
-		for i := range *bytes {
+		for i := range bytes {
 			exIdx := 0
 			if len(excess) > 0 {
 				exIdx = cnt % len(excess)
@@ -71,34 +77,35 @@ func (h *ArchasHasher) collapse(bytes *[]byte, collapseSize int) {
 
 			switch val % 6 {
 			case 0:
-				(*bytes)[i] += byte(val)
+				(bytes)[i] += byte(val)
 			case 1:
-				(*bytes)[i] -= byte(val)
+				(bytes)[i] -= byte(val)
 			case 2:
-				rot := h.rotateLeft8((*bytes)[i], byte(val))
-				(*bytes)[i] = (*bytes)[i] + byte(val) ^ rot
+				rot := h.rotateLeft8((bytes)[i], byte(val))
+				(bytes)[i] = (bytes)[i] + byte(val) ^ rot
 			case 3:
-				(*bytes)[i] ^= byte(val)
+				(bytes)[i] ^= byte(val)
 			case 4:
-				(*bytes)[i] &= byte(val)
+				(bytes)[i] &= byte(val)
 			case 5:
-				(*bytes)[i] |= byte(val)
+				(bytes)[i] |= byte(val)
 			}
 
 			b := archasKey[cnt%len(archasKey)]
 			cnt++
 
-			(*bytes)[i] = h.rotateLeft8((*bytes)[i], b)
-			(*bytes)[i] ^= byte(val * 37)
-			(*bytes)[i] ^= excess[exIdx]
+			(bytes)[i] = h.rotateLeft8((bytes)[i], b)
+			(bytes)[i] ^= byte(val * 37)
+			(bytes)[i] ^= excess[exIdx]
 
-			excess[exIdx] = excess[exIdx] + (*bytes)[i] + byte(cnt)
+			excess[exIdx] = excess[exIdx] + (bytes)[i] + byte(cnt)
 		}
 		excess = excess[1:]
 	}
 }
 
-func (h *ArchasHasher) Hash(data []byte) []byte {
+// Hash computes the Archas hash of the input data
+func (h *ArchasHasher) Hash(data []byte) [32]byte {
 	block := []byte(constant)
 
 	if len(data) > 0 {
@@ -121,7 +128,7 @@ func (h *ArchasHasher) Hash(data []byte) []byte {
 		block[i+1] = (block[i+1] << 4) | (block[i+1] >> 4) ^ (block[i] + byte(i))
 	}
 
-	h.collapse(&block, 32)
+	h.collapse(block, 32)
 
 	for r := 0; r < 3; r++ {
 		for i := range block {
@@ -131,6 +138,7 @@ func (h *ArchasHasher) Hash(data []byte) []byte {
 			block[i] = h.rotateLeft8(block[i], block[(i*3+1)%len(block)])
 		}
 	}
+
 	biasLeading := 4
 	biasBits := 3
 	biasPeriod := 291331293
@@ -148,7 +156,6 @@ func (h *ArchasHasher) Hash(data []byte) []byte {
 
 		if (decision % biasPeriod) == biasTrigger {
 			for i := 0; i < biasLeading && i < len(block); i++ {
-
 				bitsToKeep := biasBits + i
 				if bitsToKeep > 8 {
 					bitsToKeep = 8
@@ -158,5 +165,7 @@ func (h *ArchasHasher) Hash(data []byte) []byte {
 			}
 		}
 	}
-	return block
+	returnHash := [32]byte{}
+	copy(returnHash[:], block[:32])
+	return returnHash
 }

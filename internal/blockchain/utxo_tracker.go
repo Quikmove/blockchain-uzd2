@@ -1,25 +1,27 @@
 package blockchain
 
 import (
-	"log"
 	"sync"
+
+	"github.com/Quikmove/blockchain-uzd2/internal/crypto"
+	d "github.com/Quikmove/blockchain-uzd2/internal/domain"
 )
 
 type UTXOTracker struct {
-	utxoSet   map[Outpoint]UTXO
+	utxoSet   map[d.Outpoint]d.UTXO
 	UTXOMutex *sync.RWMutex
 }
 
 func NewUTXOTracker() *UTXOTracker {
 	return &UTXOTracker{
-		utxoSet:   make(map[Outpoint]UTXO),
+		utxoSet:   make(map[d.Outpoint]d.UTXO),
 		UTXOMutex: &sync.RWMutex{},
 	}
 }
 func (t *UTXOTracker) reset() {
 	t.UTXOMutex.Lock()
 	defer t.UTXOMutex.Unlock()
-	t.utxoSet = make(map[Outpoint]UTXO)
+	t.utxoSet = make(map[d.Outpoint]d.UTXO)
 }
 func (t *UTXOTracker) ScanBlockchain(bc *Blockchain) {
 	blocks := bc.Blocks()
@@ -28,12 +30,12 @@ func (t *UTXOTracker) ScanBlockchain(bc *Blockchain) {
 		t.ScanBlock(block, bc.hasher)
 	}
 }
-func (t *UTXOTracker) ScanBlock(b Block, hasher Hasher) {
+func (t *UTXOTracker) ScanBlock(b d.Block, hasher crypto.Hasher) {
 	t.UTXOMutex.Lock()
 	defer t.UTXOMutex.Unlock()
 
-	body := b.GetBody()
-	txs := body.GetTransactions()
+	body := b.Body
+	txs := body.Transactions
 	for _, tx := range txs {
 		if len(tx.Inputs) > 0 {
 			for _, input := range tx.Inputs {
@@ -41,38 +43,35 @@ func (t *UTXOTracker) ScanBlock(b Block, hasher Hasher) {
 			}
 		}
 
-		txHash, err := tx.Hash(hasher)
-		if err != nil {
-			log.Printf("Error hashing transaction: %v\n. continuing...", err)
-			continue
-		}
+		txHash := hasher.Hash(tx.Serialize())
+
 		for idx, output := range tx.Outputs {
-			outpoint := Outpoint{
+			outpoint := d.Outpoint{
 				TxID:  txHash,
 				Index: uint32(idx),
 			}
-			utxo := UTXO{
-				Out:   outpoint,
-				To:    output.To,
-				Value: output.Value,
+			utxo := d.UTXO{
+				Outpoint: outpoint,
+				To:       output.To,
+				Value:    output.Value,
 			}
 			t.utxoSet[outpoint] = utxo
 		}
 	}
 }
 
-func (t *UTXOTracker) GetUTXO(outpoint Outpoint) (UTXO, bool) {
+func (t *UTXOTracker) GetUTXO(outpoint d.Outpoint) (d.UTXO, bool) {
 	t.UTXOMutex.RLock()
 	defer t.UTXOMutex.RUnlock()
 	utxo, exists := t.utxoSet[outpoint]
 	return utxo, exists
 }
 
-func (t *UTXOTracker) GetUTXOsForAddress(address Hash32) []UTXO {
+func (t *UTXOTracker) GetUTXOsForAddress(address d.Hash32) []d.UTXO {
 	t.UTXOMutex.RLock()
 	defer t.UTXOMutex.RUnlock()
 
-	var utxos []UTXO
+	var utxos []d.UTXO
 	for _, utxo := range t.utxoSet {
 		if utxo.To == address {
 			utxos = append(utxos, utxo)
@@ -81,7 +80,7 @@ func (t *UTXOTracker) GetUTXOsForAddress(address Hash32) []UTXO {
 	return utxos
 }
 
-func (t *UTXOTracker) GetBalance(address Hash32) uint32 {
+func (t *UTXOTracker) GetBalance(address d.Hash32) uint32 {
 	utxos := t.GetUTXOsForAddress(address)
 	var balance uint32
 	for _, utxo := range utxos {

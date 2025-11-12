@@ -5,26 +5,28 @@ import (
 	"time"
 
 	"github.com/Quikmove/blockchain-uzd2/internal/config"
+	c "github.com/Quikmove/blockchain-uzd2/internal/crypto"
+	d "github.com/Quikmove/blockchain-uzd2/internal/domain"
 )
 
-func CreateGenesisBlock(ctx context.Context, txs Transactions, conf *config.Config, hasher Hasher) (Block, error) {
+func CreateGenesisBlock(ctx context.Context, txs Transactions, conf *config.Config, hasher c.Hasher) (d.Block, error) {
 	t := time.Now()
 	merkleRoot := merkleRootHash(txs, hasher)
-	header := NewHeader(
+	header := d.NewHeader(
 		conf.Version,
 		uint32(t.Unix()),
-		Hash32{},
+		d.Hash32{},
 		merkleRoot,
 		conf.Difficulty,
 		0,
 	)
-	body := NewBody(txs)
-	genesisBlock := NewBlock(header, body)
-	nonce, _, err := genesisBlock.GetHeader().FindValidNonce(ctx, hasher)
+	body := d.NewBody(txs)
+	genesisBlock := d.NewBlock(*header, *body)
+	nonce, _, err := genesisBlock.Header.FindValidNonce(ctx, hasher)
 	if err != nil {
-		return Block{}, err
+		return d.Block{}, err
 	}
-	header.SetNonce(nonce)
-	genesisBlock.SetHeader(header)
-	return genesisBlock, nil
+	header.Nonce = nonce
+	genesisBlock.Header = *header
+	return *genesisBlock, nil
 }
