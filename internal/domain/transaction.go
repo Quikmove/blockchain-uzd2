@@ -67,3 +67,20 @@ func (t *Transaction) Serialize() []byte {
 	}
 	return buf.Bytes()
 }
+
+func (t *Transaction) SerializeWithoutSignatures() []byte {
+	var buf bytes.Buffer
+
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(len(t.Inputs)))
+	for _, in := range t.Inputs {
+		buf.Write(in.Prev.TxID[:])
+		_ = binary.Write(&buf, binary.LittleEndian, in.Prev.Index)
+	}
+
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(len(t.Outputs)))
+	for _, out := range t.Outputs {
+		_ = binary.Write(&buf, binary.LittleEndian, out.Value)
+		buf.Write(out.To[:])
+	}
+	return buf.Bytes()
+}

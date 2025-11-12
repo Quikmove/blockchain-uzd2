@@ -24,16 +24,20 @@ type Blockchain struct {
 	utxoTracker *UTXOTracker
 	hasher      c.Hasher
 	txSigner    c.TransactionSigner
+	userRegistry map[d.PublicAddress]d.PublicKey
+	userMutex    *sync.RWMutex
 }
 
 func NewBlockchain(hasher c.Hasher, signer c.TransactionSigner) *Blockchain {
 	return &Blockchain{
-		blocks:      []d.Block{},
-		chainMutex:  &sync.RWMutex{},
-		txGenMutex:  &sync.Mutex{},
-		utxoTracker: NewUTXOTracker(),
-		hasher:      hasher,
-		txSigner:    signer,
+		blocks:       []d.Block{},
+		chainMutex:   &sync.RWMutex{},
+		txGenMutex:   &sync.Mutex{},
+		utxoTracker:  NewUTXOTracker(),
+		hasher:       hasher,
+		txSigner:     signer,
+		userRegistry: make(map[d.PublicAddress]d.PublicKey),
+		userMutex:    &sync.RWMutex{},
 	}
 }
 
@@ -54,12 +58,12 @@ func (bch *Blockchain) GetLatestBlock() (d.Block, error) {
 	return bch.blocks[len(bch.blocks)-1], nil
 }
 func (bch *Blockchain) AddBlock(b d.Block) error {
-
 	if err := bch.ValidateBlock(b); err != nil {
 		return fmt.Errorf("block validation failed: %w", err)
 	}
 
-	if err := bch.ValidateBlockTransactions(b, nil); err != nil {
+	users := bch.getUsersFromRegistry()
+	if err := bch.ValidateBlockTransactions(b, users); err != nil {
 		return fmt.Errorf("block transaction validation failed: %w", err)
 	}
 
@@ -152,6 +156,7 @@ func InitBlockchainWithFunds(low, high uint32, users []d.User, cfg *config.Confi
 		panic(err)
 	}
 	blockchain := NewBlockchain(hasher, txSigner)
+	blockchain.RegisterUsers(users)
 	blockchain.blocks = append(blockchain.blocks, genesisBlock)
 
 	blockchain.utxoTracker.ScanBlock(genesisBlock, hasher)
@@ -192,7 +197,7 @@ func IsHashValid(hash d.Hash32, diff uint32) bool {
 		return true
 	}
 
-	bits := diff * 4 // * 8 / 2 -> 4
+	bits := diff * 4 // * 8 / 2
 	if bits > 8*uint32(len(hash)) {
 		return false
 	}
@@ -241,17 +246,20 @@ func (bch *Blockchain) ValidateBlock(b d.Block) error {
 
 	isGenesis := height == 0
 
+	// Validate block has transactions
 	body := b.Body
 	txs := body.Transactions
 	if len(txs) == 0 {
 		return errors.New("block has no transactions")
 	}
 
+	// Validate merkle root
 	computedMerkleRoot := MerkleRootHash(body, bch.hasher)
 	if computedMerkleRoot != b.Header.MerkleRoot {
 		return fmt.Errorf("merkle root mismatch: computed %x, expected %x", computedMerkleRoot, b.Header.MerkleRoot)
 	}
 
+	// Validate block hash meets difficulty (for non-genesis blocks)
 	if !isGenesis {
 		hash := bch.CalculateHash(b)
 		if !IsHashValid(hash, b.Header.Difficulty) {
@@ -261,12 +269,16 @@ func (bch *Blockchain) ValidateBlock(b d.Block) error {
 
 	currentTime := uint32(time.Now().Unix())
 	maxFutureTime := currentTime + 7200
+	minPastTime := currentTime - 7200
 	if b.Header.Timestamp > maxFutureTime {
 		return fmt.Errorf("block timestamp too far in future: %d > %d", b.Header.Timestamp, maxFutureTime)
 	}
+	if !isGenesis && b.Header.Timestamp < minPastTime {
+		return fmt.Errorf("block timestamp too far in past: %d < %d (possible replay attack)", b.Header.Timestamp, minPastTime)
+	}
 
 	for i, tx := range txs {
-		expectedTxID := bch.hasher.Hash(tx.Serialize())
+		expectedTxID := bch.hasher.Hash(tx.SerializeWithoutSignatures())
 		if tx.TxID != expectedTxID {
 			return fmt.Errorf("transaction %d: TxID mismatch, expected %x, got %x", i, expectedTxID, tx.TxID)
 		}
@@ -327,6 +339,20 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block, users []d.User) erro
 			if len(tx.Outputs) == 0 {
 				return d.ErrInvalidTransaction
 			}
+			var coinbaseTotal uint32
+			for outputIdx, output := range tx.Outputs {
+				if output.Value == 0 {
+					return fmt.Errorf("coinbase tx output %d: zero-value output not allowed", outputIdx)
+				}
+				const maxCoinbaseReward uint32 = 1000000
+				if output.Value > maxCoinbaseReward {
+					return fmt.Errorf("coinbase tx output %d: reward exceeds maximum (%d > %d)", outputIdx, output.Value, maxCoinbaseReward)
+				}
+				if coinbaseTotal > ^uint32(0)-output.Value {
+					return fmt.Errorf("coinbase tx: total reward overflow")
+				}
+				coinbaseTotal += output.Value
+			}
 			continue
 		}
 
@@ -354,11 +380,13 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block, users []d.User) erro
 			}
 			inputSum += utxo.Value
 
-			if users != nil && len(input.Sig) > 0 {
+			if !isGenesis {
+				if len(input.Sig) == 0 {
+					return fmt.Errorf("tx %d input %d: missing signature (required for non-genesis transactions)", i, inputIdx)
+				}
 
 				publicKey, hasKey := addressToPublicKey[utxo.To]
 				if !hasKey {
-
 					for _, user := range users {
 						if user.PublicAddress == utxo.To {
 							publicKey = user.PublicKey
@@ -368,18 +396,24 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block, users []d.User) erro
 					}
 				}
 
-				if hasKey {
+				if !hasKey {
+					return fmt.Errorf("tx %d input %d: public key not found for address (signature cannot be verified)", i, inputIdx)
+				}
 
-					hashToVerify := SignatureHash(tx, utxo.Value, utxo.To[:], bch.hasher)
+				expectedAddress := c.GenerateAddress(publicKey[:])
+				if utxo.To != expectedAddress {
+					return fmt.Errorf("tx %d input %d: address does not match public key (address verification failed)", i, inputIdx)
+				}
 
-					publicKeyObj, err := secp256k1.ParsePubKey(publicKey[:])
-					if err != nil {
-						return fmt.Errorf("tx %d input %d: invalid public key: %w", i, inputIdx, err)
-					}
+				hashToVerify := SignatureHash(tx, utxo.Value, utxo.To[:], bch.hasher)
 
-					if !bch.txSigner.VerifySignature(hashToVerify[:], input.Sig, publicKeyObj) {
-						return fmt.Errorf("tx %d input %d: invalid signature", i, inputIdx)
-					}
+				publicKeyObj, err := secp256k1.ParsePubKey(publicKey[:])
+				if err != nil {
+					return fmt.Errorf("tx %d input %d: invalid public key: %w", i, inputIdx, err)
+				}
+
+				if !bch.txSigner.VerifySignature(hashToVerify[:], input.Sig, publicKeyObj) {
+					return fmt.Errorf("tx %d input %d: invalid signature", i, inputIdx)
 				}
 			}
 
@@ -486,14 +520,14 @@ func (bch *Blockchain) GenerateRandomTransactions(users []d.User, low, high, n i
 			Outputs: outputs,
 		}
 
+		txID := bch.hasher.Hash(tx.SerializeWithoutSignatures())
+		tx.TxID = txID
+
 		for j := range tx.Inputs {
 			hashToSign := SignatureHash(tx, selectedUTXOs[j].Value, selectedUTXOs[j].To[:], bch.hasher)
 			sig := bch.txSigner.SignTransaction(hashToSign[:], sender.GetPrivateKeyObject())
 			tx.Inputs[j].Sig = sig[:]
 		}
-
-		txID := bch.hasher.Hash(tx.Serialize())
-		tx.TxID = txID
 
 		generatedTxs = append(generatedTxs, tx)
 		for _, utxo := range selectedUTXOs {
@@ -557,6 +591,29 @@ func (bch *Blockchain) GetUserBalance(address d.PublicAddress) uint32 {
 func (bch *Blockchain) GetUTXOsForAddress(address d.PublicAddress) []d.UTXO {
 	return bch.utxoTracker.GetUTXOsForAddress(address)
 }
+
+func (bch *Blockchain) RegisterUsers(users []d.User) {
+	bch.userMutex.Lock()
+	defer bch.userMutex.Unlock()
+	for _, user := range users {
+		bch.userRegistry[user.PublicAddress] = user.PublicKey
+	}
+}
+
+func (bch *Blockchain) getUsersFromRegistry() []d.User {
+	bch.userMutex.RLock()
+	defer bch.userMutex.RUnlock()
+	
+	users := make([]d.User, 0, len(bch.userRegistry))
+	for address, publicKey := range bch.userRegistry {
+		users = append(users, d.User{
+			PublicAddress: address,
+			PublicKey:     publicKey,
+		})
+	}
+	return users
+}
+
 func (bch *Blockchain) String() string {
 	blocks := bch.Blocks()
 	b, err := json.MarshalIndent(blocks, "", "  ")

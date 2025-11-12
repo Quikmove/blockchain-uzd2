@@ -17,6 +17,36 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+func validateBlockIndex(index int, maxHeight int) error {
+	if index < 0 {
+		return fmt.Errorf("block index must be non-negative, got %d", index)
+	}
+	if index >= maxHeight {
+		return fmt.Errorf("block index %d is out of range (max: %d)", index, maxHeight-1)
+	}
+	return nil
+}
+
+func validatePositiveInt(value int, fieldName string) error {
+	if value <= 0 {
+		return fmt.Errorf("%s must be positive, got %d", fieldName, value)
+	}
+	return nil
+}
+
+func validateTransactionValueRange(min, max int) error {
+	if min < 0 {
+		return fmt.Errorf("minimum transaction value must be non-negative, got %d", min)
+	}
+	if max < 0 {
+		return fmt.Errorf("maximum transaction value must be non-negative, got %d", max)
+	}
+	if min > max {
+		return fmt.Errorf("minimum transaction value (%d) cannot exceed maximum (%d)", min, max)
+	}
+	return nil
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -42,6 +72,7 @@ func main() {
 					log.Println("Generating genesis block...")
 					txSigner := crypto.NewTransactionSigner()
 					bch := blockchain.InitBlockchainWithFunds(100, 1000000, users, cfg, hasher, txSigner)
+					bch.RegisterUsers(users)
 					genesis, _ := bch.GetLatestBlock()
 					genesisHeader := genesis.Header
 					log.Println("Found a POW hash successfully with nonce:", genesisHeader.Nonce)
@@ -99,6 +130,11 @@ func main() {
 							_, err := fmt.Scanln(&index)
 							if err != nil {
 								fmt.Println("failed to read index, try again:", err)
+								continue
+							}
+							maxHeight := bch.Len()
+							if err := validateBlockIndex(index, maxHeight); err != nil {
+								fmt.Printf("Invalid block index: %v\n", err)
 								continue
 							}
 							block, err := bch.GetBlockByIndex(index)
@@ -178,6 +214,11 @@ func main() {
 								fmt.Println("failed to read index, try again:", err)
 								continue
 							}
+							maxHeight := bch.Len()
+							if err := validateBlockIndex(index, maxHeight); err != nil {
+								fmt.Printf("Invalid block index: %v\n", err)
+								continue
+							}
 							block, err := bch.GetBlockByIndex(index)
 							if err != nil {
 								fmt.Println("Error:", err)
@@ -197,6 +238,11 @@ func main() {
 								fmt.Println("failed to read index, try again:", err)
 								continue
 							}
+							maxHeight := bch.Len()
+							if err := validateBlockIndex(index, maxHeight); err != nil {
+								fmt.Printf("Invalid block index: %v\n", err)
+								continue
+							}
 							block, err := bch.GetBlockByIndex(index)
 							if err != nil {
 								fmt.Println("Error:", err)
@@ -213,11 +259,19 @@ func main() {
 								fmt.Println("failed to read number, try again:", err)
 								continue
 							}
+							if err := validatePositiveInt(numBlocks, "number of blocks"); err != nil {
+								fmt.Printf("Invalid input: %v\n", err)
+								continue
+							}
 							var numTxs int
 							fmt.Println("Please enter number of transactions per block:")
 							_, err = fmt.Scanln(&numTxs)
 							if err != nil {
 								fmt.Println("failed to read number, try again:", err)
+								continue
+							}
+							if err := validatePositiveInt(numTxs, "number of transactions"); err != nil {
+								fmt.Printf("Invalid input: %v\n", err)
 								continue
 							}
 							var minTxValue int
@@ -234,6 +288,10 @@ func main() {
 								fmt.Println("failed to read number, try again:", err)
 								continue
 							}
+							if err := validateTransactionValueRange(minTxValue, maxTxValue); err != nil {
+								fmt.Printf("Invalid transaction value range: %v\n", err)
+								continue
+							}
 
 							ctx := context.Background()
 							err = bch.MineBlocks(ctx, numBlocks, numTxs, minTxValue, maxTxValue, users, cfg.Version, cfg.Difficulty)
@@ -246,6 +304,11 @@ func main() {
 							_, err := fmt.Scanln(&index)
 							if err != nil {
 								fmt.Println("failed to read index, try again:", err)
+								continue
+							}
+							maxHeight := bch.Len()
+							if err := validateBlockIndex(index, maxHeight); err != nil {
+								fmt.Printf("Invalid block index: %v\n", err)
 								continue
 							}
 							block, err := bch.GetBlockByIndex(index)
@@ -289,25 +352,25 @@ func main() {
 									continue
 								}
 
-								if len(pubKeyBytes) > 32 {
-									fmt.Println("Error: public key too long (max 32 bytes / 64 hex characters)")
+								if len(pubKeyBytes) != 33 {
+									fmt.Println("Error: public key must be exactly 33 bytes (66 hex characters)")
 									continue
 								}
 
+								var pubKey domain.PublicKey
+								copy(pubKey[:], pubKeyBytes)
+
 								for i := range users {
-									userKeyBytes := users[i].PublicKey[:]
-									if len(pubKeyBytes) <= len(userKeyBytes) {
-										if string(userKeyBytes[:len(pubKeyBytes)]) == string(pubKeyBytes) {
-											user = users[i]
-											found = true
-											break
-										}
+									if users[i].PublicKey == pubKey {
+										user = users[i]
+										found = true
+										break
 									}
 								}
 
 								if !found {
-									fmt.Println("Error: no user found with that public key prefix")
-									fmt.Println("Hint: Use the 'balance' command to see all users")
+									fmt.Println("Error: no user found with that public key")
+									fmt.Println("Hint: Use the 'balance' command to see all users and their public keys")
 									continue
 								}
 							}
@@ -377,7 +440,11 @@ func main() {
 							var topN int
 							fmt.Println("How many top users to show?")
 							_, err := fmt.Scanln(&topN)
-							if err != nil || topN <= 0 {
+							if err != nil {
+								fmt.Println("failed to read number, using default (10)")
+								topN = 10
+							} else if err := validatePositiveInt(topN, "number of top users"); err != nil {
+								fmt.Printf("Invalid input: %v, using default (10)\n", err)
 								topN = 10
 							}
 
@@ -425,24 +492,24 @@ func main() {
 									continue
 								}
 
-								if len(pubKeyBytes) > 32 {
-									fmt.Println("Error: public key too long (max 32 bytes / 64 hex characters)")
+								if len(pubKeyBytes) != 33 {
+									fmt.Println("Error: public key must be exactly 33 bytes (66 hex characters)")
 									continue
 								}
 
+								var pubKey domain.PublicKey
+								copy(pubKey[:], pubKeyBytes)
+
 								for i := range users {
-									userKeyBytes := users[i].PublicKey[:]
-									if len(pubKeyBytes) <= len(userKeyBytes) {
-										if string(userKeyBytes[:len(pubKeyBytes)]) == string(pubKeyBytes) {
-											user = users[i]
-											found = true
-											break
-										}
+									if users[i].PublicKey == pubKey {
+										user = users[i]
+										found = true
+										break
 									}
 								}
 
 								if !found {
-									fmt.Println("Error: no user found with that public key prefix")
+									fmt.Println("Error: no user found with that public key")
 									fmt.Println("Hint: Use the 'balance' command to see all users and their public keys")
 									continue
 								}

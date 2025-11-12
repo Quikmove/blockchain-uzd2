@@ -50,7 +50,7 @@ func GenerateFundTransactionsForUsers(users []d.User, low, high uint32, hasher c
 			Inputs:  nil,
 			Outputs: outputs,
 		}
-		hash := hasher.Hash(tx.Serialize())
+		hash := hasher.Hash(tx.SerializeWithoutSignatures())
 
 		tx.TxID = hash
 		txs = append(txs, tx)
