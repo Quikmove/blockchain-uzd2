@@ -26,21 +26,6 @@ func main() {
 		Name:  "blockchain-cli",
 		Usage: "Interact with blockchain (local or via HTTP API)",
 		Commands: []*cli.Command{
-			//{
-			//	Name:  "serve",
-			//	Usage: "Start HTTP API server",
-			//	Action: func(context.Context, *cli.Command) error {
-			//		cfg := config.LoadConfig()
-			//		names := filetolist.FileToList(cfg.NameListPath)
-			//		users := blockchain.GenerateUsers(names, 3)
-			//		bch := blockchain.InitBlockchainWithFunds(100, 1000000, users, cfg, blockchain.NewArchasHasher())
-			//		ctx := context.Background()
-			//		if err := api.Run(ctx, bch, cfg, nil); err != nil {
-			//			log.Fatalln(err)
-			//		}
-			//		return nil
-			//	},
-			//},
 			{
 				Name:  "local",
 				Usage: "Start an interactive blockchain session",

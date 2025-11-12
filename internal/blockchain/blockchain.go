@@ -14,6 +14,7 @@ import (
 	"github.com/Quikmove/blockchain-uzd2/internal/config"
 	c "github.com/Quikmove/blockchain-uzd2/internal/crypto"
 	d "github.com/Quikmove/blockchain-uzd2/internal/domain"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 type Blockchain struct {
@@ -53,8 +54,13 @@ func (bch *Blockchain) GetLatestBlock() (d.Block, error) {
 	return bch.blocks[len(bch.blocks)-1], nil
 }
 func (bch *Blockchain) AddBlock(b d.Block) error {
-	if err := bch.ValidateBlockTransactions(b); err != nil {
+	// Validate block structure and transactions
+	if err := bch.ValidateBlock(b); err != nil {
 		return fmt.Errorf("block validation failed: %w", err)
+	}
+
+	if err := bch.ValidateBlockTransactions(b, nil); err != nil {
+		return fmt.Errorf("block transaction validation failed: %w", err)
 	}
 
 	bch.chainMutex.Lock()
@@ -235,13 +241,41 @@ func (bch *Blockchain) ValidateBlock(b d.Block) error {
 
 	isGenesis := height == 0
 
+	// Validate block has transactions
 	body := b.Body
 	txs := body.Transactions
 	if len(txs) == 0 {
 		return errors.New("block has no transactions")
 	}
 
+	// Validate merkle root
+	computedMerkleRoot := MerkleRootHash(body, bch.hasher)
+	if computedMerkleRoot != b.Header.MerkleRoot {
+		return fmt.Errorf("merkle root mismatch: computed %x, expected %x", computedMerkleRoot, b.Header.MerkleRoot)
+	}
+
+	// Validate block hash meets difficulty (for non-genesis blocks)
+	if !isGenesis {
+		hash := bch.CalculateHash(b)
+		if !IsHashValid(hash, b.Header.Difficulty) {
+			return d.ErrInvalidDifficulty
+		}
+	}
+
+	// Validate timestamp reasonableness (not too far in future, allow some past tolerance)
+	currentTime := uint32(time.Now().Unix())
+	maxFutureTime := currentTime + 7200 // Allow 2 hours in future
+	if b.Header.Timestamp > maxFutureTime {
+		return fmt.Errorf("block timestamp too far in future: %d > %d", b.Header.Timestamp, maxFutureTime)
+	}
+
+	// Validate transaction IDs
 	for i, tx := range txs {
+		expectedTxID := bch.hasher.Hash(tx.Serialize())
+		if tx.TxID != expectedTxID {
+			return fmt.Errorf("transaction %d: TxID mismatch, expected %x, got %x", i, expectedTxID, tx.TxID)
+		}
+
 		isCoinbase := len(tx.Inputs) == 0
 		if isGenesis {
 			if !isCoinbase {
@@ -259,12 +293,12 @@ func (bch *Blockchain) ValidateBlock(b d.Block) error {
 		if len(tx.Inputs) == 0 {
 			return fmt.Errorf("non-coinbase tx has no inputs (index %d)", i)
 		}
-
 	}
+
 	return nil
 }
 
-func (bch *Blockchain) ValidateBlockTransactions(b d.Block) error {
+func (bch *Blockchain) ValidateBlockTransactions(b d.Block, users []d.User) error {
 	bch.chainMutex.RLock()
 	height := len(bch.blocks)
 	bch.chainMutex.RUnlock()
@@ -278,6 +312,11 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block) error {
 	}
 
 	spentInBlock := make(map[d.Outpoint]bool)
+
+	addressToPublicKey := make(map[d.PublicAddress]d.PublicKey)
+	for _, user := range users {
+		addressToPublicKey[user.PublicAddress] = user.PublicKey
+	}
 
 	for i, tx := range txs {
 		isCoinbase := len(tx.Inputs) == 0
@@ -305,7 +344,7 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block) error {
 		}
 
 		var inputSum uint32
-		for _, input := range tx.Inputs {
+		for inputIdx, input := range tx.Inputs {
 			if spentInBlock[input.Prev] {
 				return d.ErrDoubleSpend
 			}
@@ -319,6 +358,38 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block) error {
 				return d.ErrNoValidNonce
 			}
 			inputSum += utxo.Value
+
+			// Verify signature if users are provided
+			if users != nil && len(input.Sig) > 0 {
+				// Get public key from address
+				publicKey, hasKey := addressToPublicKey[utxo.To]
+				if !hasKey {
+					// Try to find user by matching address
+					for _, user := range users {
+						if user.PublicAddress == utxo.To {
+							publicKey = user.PublicKey
+							hasKey = true
+							break
+						}
+					}
+				}
+
+				if hasKey {
+					// Compute signature hash
+					hashToVerify := SignatureHash(tx, utxo.Value, utxo.To[:], bch.hasher)
+
+					// Convert public key to secp256k1 format
+					publicKeyObj, err := secp256k1.ParsePubKey(publicKey[:])
+					if err != nil {
+						return fmt.Errorf("tx %d input %d: invalid public key: %w", i, inputIdx, err)
+					}
+
+					// Verify signature
+					if !bch.txSigner.VerifySignature(hashToVerify[:], input.Sig, publicKeyObj) {
+						return fmt.Errorf("tx %d input %d: invalid signature", i, inputIdx)
+					}
+				}
+			}
 
 			spentInBlock[input.Prev] = true
 		}
