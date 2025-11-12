@@ -158,27 +158,52 @@ func FindValidNonce(ctx context.Context, header *d.Header, hasher c.Hasher) (uin
 	}
 }
 
+type DecentralizedMiningConfig struct {
+	BlockCount          int
+	TxCount             int
+	CandidateCount      int
+	InitialTimeLimit    time.Duration
+	InitialAttemptLimit uint64
+	TimeMultiplier      float64
+	AttemptMultiplier   float64
+	Low                 int
+	High                int
+	Version             uint32
+	Difficulty          uint32
+}
+
+func DefaultDecentralizedMiningConfig() DecentralizedMiningConfig {
+	return DecentralizedMiningConfig{
+		BlockCount:          1,
+		TxCount:             100,
+		CandidateCount:      5,
+		InitialTimeLimit:    5 * time.Second,
+		InitialAttemptLimit: 0,
+		TimeMultiplier:      2.0,
+		AttemptMultiplier:   2.0,
+		Low:                 1,
+		High:                1000,
+		Version:             1,
+		Difficulty:          1,
+	}
+}
+
 func (bch *Blockchain) MineBlocksDecentralized(
 	parentCtx context.Context,
-	blockCount, txCount, candidateCount int,
-	initialTimeLimit time.Duration,
-	initialAttemptLimit uint64,
-	timeMultiplier, attemptMultiplier float64,
-	low, high int,
 	users []d.User,
-	version, difficulty uint32,
+	config DecentralizedMiningConfig,
 ) error {
-	if blockCount <= 0 {
+	if config.BlockCount <= 0 {
 		return nil
 	}
 
-	for round := 0; round < blockCount; round++ {
+	for round := 0; round < config.BlockCount; round++ {
 		if parentCtx.Err() != nil {
 			return parentCtx.Err()
 		}
 
-		timeLimit := initialTimeLimit
-		attemptLimit := initialAttemptLimit
+		timeLimit := config.InitialTimeLimit
+		attemptLimit := config.InitialAttemptLimit
 		var miningSuccess bool
 
 		for !miningSuccess {
@@ -186,9 +211,9 @@ func (bch *Blockchain) MineBlocksDecentralized(
 				return parentCtx.Err()
 			}
 
-			candidateBlocks := make([]d.Body, 0, candidateCount)
-			for i := 0; i < candidateCount; i++ {
-				txs, err := bch.GenerateRandomTransactions(users, low, high, txCount)
+			candidateBlocks := make([]d.Body, 0, config.CandidateCount)
+			for i := 0; i < config.CandidateCount; i++ {
+				txs, err := bch.GenerateRandomTransactions(users, config.Low, config.High, config.TxCount)
 				if err != nil {
 					if errors.Is(err, context.Canceled) {
 						return err
@@ -235,11 +260,11 @@ func (bch *Blockchain) MineBlocksDecentralized(
 					}
 
 					var newHeader d.Header
-					newHeader.Version = version
+					newHeader.Version = config.Version
 					newHeader.Timestamp = uint32(time.Now().Unix())
 					newHeader.PrevHash = bch.CalculateHash(latestBlock)
 					newHeader.MerkleRoot = MerkleRootHash(candidateBody, bch.hasher)
-					newHeader.Difficulty = difficulty
+					newHeader.Difficulty = config.Difficulty
 
 					var nonce uint32
 					var attempts uint64
@@ -257,7 +282,7 @@ func (bch *Blockchain) MineBlocksDecentralized(
 
 						newHeader.Nonce = nonce
 						hash := bch.hasher.Hash(newHeader.Serialize())
-						if IsHashValid(hash, difficulty) {
+						if IsHashValid(hash, config.Difficulty) {
 							newBlock := d.Block{
 								Header: newHeader,
 								Body:   candidateBody,
@@ -294,7 +319,7 @@ func (bch *Blockchain) MineBlocksDecentralized(
 					round+1, blockIndex, round+1, len(blockTxs), blk.Header.Nonce)
 			case <-timeoutCtx.Done():
 				if !miningSuccess {
-					timeLimit = time.Duration(float64(timeLimit) * timeMultiplier)
+					timeLimit = time.Duration(float64(timeLimit) * config.TimeMultiplier)
 					log.Printf("Round %d: No block mined within time limit, retrying with increased time limit: %v", round+1, timeLimit)
 				}
 			case <-parentCtx.Done():

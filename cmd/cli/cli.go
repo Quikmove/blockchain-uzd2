@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/Quikmove/blockchain-uzd2/internal/blockchain"
 	"github.com/Quikmove/blockchain-uzd2/internal/config"
@@ -82,8 +83,14 @@ func main() {
 						log.Println(err)
 					}
 					txsSize := 100
-					//AddBlocks(5, ctx, bch, users, txsSize, cfg, hasher)
-					err := bch.MineBlocks(ctx, 5, txsSize, 10, 50, users, cfg.Version, cfg.Difficulty)
+					config := blockchain.DefaultDecentralizedMiningConfig()
+					config.BlockCount = 5
+					config.TxCount = txsSize
+					config.Low = 10
+					config.High = 50
+					config.Version = cfg.Version
+					config.Difficulty = cfg.Difficulty
+					err := bch.MineBlocksDecentralized(ctx, users, config)
 					if err != nil {
 						log.Println("Error mining initial blocks:", err)
 					}
@@ -93,6 +100,7 @@ func main() {
 						fmt.Println("╠═══════════════════════════════════════════════════════════════════════╣")
 						fmt.Println("║ MINING:                                                               ║")
 						fmt.Println("║   mineblocks          - Mine new blocks with random transactions      ║")
+						fmt.Println("║   simulatedecentralizedmining - Simulate decentralized mining         ║")
 						fmt.Println("║                                                                       ║")
 						fmt.Println("║ BLOCKCHAIN INFO:                                                      ║")
 						fmt.Println("║   height              - Show current blockchain height                ║")
@@ -297,6 +305,92 @@ func main() {
 							err = bch.MineBlocks(ctx, numBlocks, numTxs, minTxValue, maxTxValue, users, cfg.Version, cfg.Difficulty)
 							if err != nil {
 								fmt.Println("Error mining blocks:", err)
+							}
+						case "simulatedecentralizedmining":
+							config := blockchain.DefaultDecentralizedMiningConfig()
+							config.Version = cfg.Version
+							config.Difficulty = cfg.Difficulty
+
+							var numBlocks int
+							fmt.Println("Please enter number of blocks to mine:")
+							_, err := fmt.Scanln(&numBlocks)
+							if err != nil {
+								fmt.Println("failed to read number, using default (1)")
+								numBlocks = 1
+							} else if err := validatePositiveInt(numBlocks, "number of blocks"); err != nil {
+								fmt.Printf("Invalid input: %v, using default (1)\n", err)
+								numBlocks = 1
+							}
+							config.BlockCount = numBlocks
+
+							var numTxs int
+							fmt.Println("Please enter number of transactions per candidate block (default: 100):")
+							_, err = fmt.Scanln(&numTxs)
+							if err != nil {
+								fmt.Println("using default (100)")
+								numTxs = 100
+							} else if err := validatePositiveInt(numTxs, "number of transactions"); err != nil {
+								fmt.Printf("Invalid input: %v, using default (100)\n", err)
+								numTxs = 100
+							}
+							config.TxCount = numTxs
+
+							var candidateCount int
+							fmt.Println("Please enter number of candidate blocks to generate (default: 5):")
+							_, err = fmt.Scanln(&candidateCount)
+							if err != nil {
+								fmt.Println("using default (5)")
+								candidateCount = 5
+							} else if err := validatePositiveInt(candidateCount, "number of candidates"); err != nil {
+								fmt.Printf("Invalid input: %v, using default (5)\n", err)
+								candidateCount = 5
+							}
+							config.CandidateCount = candidateCount
+
+							var timeLimitSeconds int
+							fmt.Println("Please enter initial time limit in seconds (default: 5):")
+							_, err = fmt.Scanln(&timeLimitSeconds)
+							if err != nil {
+								fmt.Println("using default (5 seconds)")
+								timeLimitSeconds = 5
+							} else if err := validatePositiveInt(timeLimitSeconds, "time limit"); err != nil {
+								fmt.Printf("Invalid input: %v, using default (5 seconds)\n", err)
+								timeLimitSeconds = 5
+							}
+							config.InitialTimeLimit = time.Duration(timeLimitSeconds) * time.Second
+
+							var minTxValue int
+							fmt.Println("Please enter minimum transaction value (default: 1):")
+							_, err = fmt.Scanln(&minTxValue)
+							if err != nil {
+								fmt.Println("using default (1)")
+								minTxValue = 1
+							}
+							var maxTxValue int
+							fmt.Println("Please enter maximum transaction value (default: 1000):")
+							_, err = fmt.Scanln(&maxTxValue)
+							if err != nil {
+								fmt.Println("using default (1000)")
+								maxTxValue = 1000
+							}
+							if err := validateTransactionValueRange(minTxValue, maxTxValue); err != nil {
+								fmt.Printf("Invalid transaction value range: %v, using defaults\n", err)
+								minTxValue = 1
+								maxTxValue = 1000
+							}
+							config.Low = minTxValue
+							config.High = maxTxValue
+
+							fmt.Println("\nStarting decentralized mining simulation...")
+							fmt.Printf("Configuration: %d blocks, %d candidates per round, %d tx per candidate, %v initial time limit\n",
+								config.BlockCount, config.CandidateCount, config.TxCount, config.InitialTimeLimit)
+
+							ctx := context.Background()
+							err = bch.MineBlocksDecentralized(ctx, users, config)
+							if err != nil {
+								fmt.Println("Error in decentralized mining:", err)
+							} else {
+								fmt.Println("Decentralized mining completed successfully!")
 							}
 						case "getblocktransactions":
 							var index int
@@ -552,6 +646,8 @@ func main() {
 							fmt.Println("║ MINING COMMANDS:                                                                          ║")
 							fmt.Println("║   mineblocks - Mines new blocks with random transactions between users                    ║")
 							fmt.Println("║                Prompts for: number of blocks, transactions per block, min/max tx value    ║")
+							fmt.Println("║   simulatedecentralizedmining - Simulates decentralized mining with multiple candidates ║")
+							fmt.Println("║                Generates multiple candidate blocks and mines them with time limits         ║")
 							fmt.Println("║                                                                                           ║")
 							fmt.Println("║ BLOCKCHAIN INFO:                                                                          ║")
 							fmt.Println("║   height     - Displays the current height (number of blocks) in the chain                ║")
