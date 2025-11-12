@@ -83,3 +83,18 @@ func BytesToHash32(b []byte) (Hash32, error) {
 func (h *Hash32) Equals(other *Hash32) bool {
 	return *h == *other
 }
+
+type PrivateKey [32]byte
+
+type PublicKey [33]byte
+
+func (p PublicKey) MarshalJSON() ([]byte, error) {
+	return json.Marshal(hex.EncodeToString(p[:]))
+}
+
+// PublicAddress represents a 20-byte HASH160 address.
+type PublicAddress [20]byte
+
+func (pa PublicAddress) MarshalJSON() ([]byte, error) {
+	return json.Marshal(hex.EncodeToString(pa[:]))
+}

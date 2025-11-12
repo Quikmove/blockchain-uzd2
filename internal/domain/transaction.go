@@ -19,8 +19,15 @@ type TxInput struct {
 
 // TxOutput represents an output of a transaction
 type TxOutput struct {
-	To    []byte `json:"to"`
-	Value uint32 `json:"value"`
+	To    PublicAddress `json:"to"`
+	Value uint32        `json:"value"`
+}
+
+// UTXO represents an unspent transaction output
+type UTXO struct {
+	Outpoint Outpoint
+	To       PublicAddress
+	Value    uint32
 }
 
 // Transaction represents a blockchain transaction
@@ -59,11 +66,4 @@ func (t *Transaction) Serialize() []byte {
 		buf.Write(out.To[:])
 	}
 	return buf.Bytes()
-}
-
-// UTXO represents an unspent transaction output
-type UTXO struct {
-	Outpoint Outpoint
-	To       []byte
-	Value    uint32
 }

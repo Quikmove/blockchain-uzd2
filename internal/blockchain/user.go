@@ -1,8 +1,12 @@
 package blockchain
 
 import (
+	"crypto/sha256"
 	"math/rand"
+	"strconv"
+	"time"
 
+	"github.com/Quikmove/blockchain-uzd2/internal/crypto"
 	d "github.com/Quikmove/blockchain-uzd2/internal/domain"
 )
 
@@ -26,10 +30,10 @@ func GetUserByPublicKey(users []d.User, pk []byte) (d.User, error) {
 }
 
 type UserGeneratorService struct {
-	keyGen KeyGenerator
+	keyGen crypto.KeyGenerator
 }
 
-func NewUserGeneratorService(keyGen KeyGenerator) *UserGeneratorService {
+func NewUserGeneratorService(keyGen crypto.KeyGenerator) *UserGeneratorService {
 	return &UserGeneratorService{keyGen: keyGen}
 }
 
@@ -47,7 +51,9 @@ func (ugs *UserGeneratorService) GenerateUsers(names []string, n int) []d.User {
 		for usedNames[name] {
 			name = names[rand.Intn(namesLen)]
 		}
-		pubKey, privateKey, err := ugs.keyGen.GenerateKeyPair()
+		mneumonicBytes := sha256.Sum256([]byte(strconv.FormatInt(time.Now().UnixNano(), 36)))
+		mneumonicString := string(mneumonicBytes[:])
+		privateKey, publicKey, err := ugs.keyGen.GenerateKeyPair(mneumonicString)
 		if err != nil {
 			panic(err)
 		}
@@ -55,7 +61,7 @@ func (ugs *UserGeneratorService) GenerateUsers(names []string, n int) []d.User {
 		user := d.NewUser(
 			id,
 			name,
-			pubKey,
+			publicKey,
 			privateKey,
 		)
 		id++

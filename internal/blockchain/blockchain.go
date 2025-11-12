@@ -372,7 +372,7 @@ func (bch *Blockchain) GenerateRandomTransactions(users []d.User, low, high, n i
 		sender := users[senderIndex]
 		recipient := users[recipientIndex]
 
-		utxos := bch.utxoTracker.GetUTXOsForAddress(sender.PublicKey)
+		utxos := bch.utxoTracker.GetUTXOsForAddress(sender.PublicAddress)
 
 		if len(utxos) == 0 {
 			continue
@@ -411,11 +411,11 @@ func (bch *Blockchain) GenerateRandomTransactions(users []d.User, low, high, n i
 		}
 
 		var outputs []d.TxOutput
-		outputs = append(outputs, d.TxOutput{Value: amount, To: recipient.PublicKey})
+		outputs = append(outputs, d.TxOutput{Value: amount, To: recipient.PublicAddress})
 
 		if totalInput > amount {
 			change := totalInput - amount
-			outputs = append(outputs, d.TxOutput{Value: change, To: sender.PublicKey})
+			outputs = append(outputs, d.TxOutput{Value: change, To: sender.PublicAddress})
 		}
 
 		tx := d.Transaction{
@@ -425,8 +425,7 @@ func (bch *Blockchain) GenerateRandomTransactions(users []d.User, low, high, n i
 
 		for j := range tx.Inputs {
 			hashToSign := SignatureHash(tx, selectedUTXOs[j].Value, selectedUTXOs[j].To[:], bch.hasher)
-			sig := bch.txSigner.SignTransaction(hashToSign[:], sender.PrivateKey)
-
+			sig := bch.txSigner.SignTransaction(hashToSign[:], sender.GetPrivateKeyObject())
 			tx.Inputs[j].Sig = sig[:]
 		}
 
@@ -486,13 +485,13 @@ func (bch *Blockchain) Print(w io.Writer) error {
 	enc.SetIndent("", "  ")
 	return enc.Encode(blocks)
 }
-func (bch *Blockchain) GetUserBalance(address []byte) uint32 {
+func (bch *Blockchain) GetUserBalance(address d.PublicAddress) uint32 {
 	bch.chainMutex.RLock()
 	defer bch.chainMutex.RUnlock()
 	balance := bch.utxoTracker.GetBalance(address)
 	return balance
 }
-func (bch *Blockchain) GetUTXOsForAddress(address []byte) []d.UTXO {
+func (bch *Blockchain) GetUTXOsForAddress(address d.PublicAddress) []d.UTXO {
 	return bch.utxoTracker.GetUTXOsForAddress(address)
 }
 func (bch *Blockchain) String() string {

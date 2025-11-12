@@ -55,7 +55,7 @@ func main() {
 					users := userGen.GenerateUsers(names, cfg.UserCount)
 					log.Println("User count:", len(users))
 					log.Println("Generating genesis block...")
-					txSigner := crypto.NewTransactionSigner(hasher)
+					txSigner := crypto.NewTransactionSigner()
 					bch := blockchain.InitBlockchainWithFunds(100, 1000000, users, cfg, hasher, txSigner)
 					genesis, _ := bch.GetLatestBlock()
 					genesisHeader := genesis.Header
@@ -332,7 +332,7 @@ func main() {
 								continue
 							}
 
-							balance := bch.GetUserBalance(user.PublicKey)
+							balance := bch.GetUserBalance(user.Address())
 							pubKeyHex := fmt.Sprintf("%x", user.PublicKey)
 
 							fmt.Println("\n╔═══════════════════════════════════════════════════════════════════════════════════════════╗")
@@ -355,10 +355,10 @@ func main() {
 							fmt.Println("\n╔═══════════════════════════════════════════════════════════════════════════════════════════╗")
 							fmt.Println("║                                     USER BALANCES                                         ║")
 							fmt.Println("╠════════════════════════════════╦═══════════════╦══════════════════════════════════════════╣")
-							fmt.Println("║            NAME                ║    BALANCE    ║              PUBLIC KEY                  ║")
+							fmt.Println("║            NAME                ║    BALANCE    ║              PUBLIC ADDRESSES            ║")
 							fmt.Println("╠════════════════════════════════╬═══════════════╬══════════════════════════════════════════╣")
 							for _, user := range users {
-								balance := bch.GetUserBalance(user.PublicKey)
+								balance := bch.GetUserBalance(user.PublicAddress)
 								pubKeyHex := fmt.Sprintf("%x", user.PublicKey)
 								pubKeyShort := pubKeyHex[:40]
 								fmt.Printf("║ %-30s ║ %13d ║ %40s ║\n", user.Name, balance, pubKeyShort)
@@ -366,18 +366,18 @@ func main() {
 							fmt.Println("╚════════════════════════════════╩═══════════════╩══════════════════════════════════════════╝")
 						case "richlist":
 							type UserBalance struct {
-								Name    string
-								Balance uint32
-								PubKey  []byte
+								Name          string
+								Balance       uint32
+								PublicAddress domain.PublicAddress
 							}
 
 							var userBalances []UserBalance
 							for _, user := range users {
-								balance := bch.GetUserBalance(user.PublicKey)
+								balance := bch.GetUserBalance(user.PublicAddress)
 								userBalances = append(userBalances, UserBalance{
-									Name:    user.Name,
-									Balance: balance,
-									PubKey:  user.PublicKey,
+									Name:          user.Name,
+									Balance:       balance,
+									PublicAddress: user.PublicAddress,
 								})
 							}
 
@@ -403,10 +403,10 @@ func main() {
 							fmt.Println("\n╔═══════════════════════════════════════════════════════════════════════════════════════════╗")
 							fmt.Printf("║                                 TOP %d RICHEST USERS                                      ║\n", topN)
 							fmt.Println("╠══════╦═════════════════════════════╦═══════════════╦══════════════════════════════════════╣")
-							fmt.Println("║ RANK ║           NAME              ║    BALANCE    ║           PUBLIC KEY                 ║")
+							fmt.Println("║ RANK ║           NAME              ║    BALANCE    ║           PUBLIC ADDRESS             ║")
 							fmt.Println("╠══════╬═════════════════════════════╬═══════════════╬══════════════════════════════════════╣")
 							for i := 0; i < topN; i++ {
-								pubKeyHex := fmt.Sprintf("%x", userBalances[i].PubKey)
+								pubKeyHex := fmt.Sprintf("%x", userBalances[i].PublicAddress)
 								pubKeyShort := pubKeyHex[:36]
 								fmt.Printf("║  %2d  ║ %-27s ║ %13d ║ %36s ║\n",
 									i+1, userBalances[i].Name, userBalances[i].Balance, pubKeyShort)
@@ -468,7 +468,7 @@ func main() {
 								continue
 							}
 
-							utxos := bch.GetUTXOsForAddress(user.PublicKey)
+							utxos := bch.GetUTXOsForAddress(user.PublicAddress)
 
 							fmt.Printf("\n╔══════════════════════════════════════════════════════════════════════════════════════════╗\n")
 							fmt.Printf("║                            UTXOs for %-51s ║\n", user.Name)

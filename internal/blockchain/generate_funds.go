@@ -42,7 +42,7 @@ func GenerateFundTransactionsForUsers(users []d.User, low, high uint32, hasher c
 		for _, v := range utxos {
 			txOut := d.TxOutput{
 				Value: v,
-				To:    usr.PublicKey,
+				To:    usr.PublicAddress,
 			}
 			outputs = append(outputs, txOut)
 		}

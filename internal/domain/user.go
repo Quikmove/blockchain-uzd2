@@ -2,27 +2,42 @@ package domain
 
 import (
 	"time"
+
+	"github.com/Quikmove/blockchain-uzd2/internal/crypto"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 )
 
 type User struct {
-	ID         uint32 `json:"id"`
-	Name       string `json:"name"`
-	CreatedAt  uint32 `json:"created_at"`
-	PublicKey  []byte `json:"public_key"` // Only the public key is stored with the user
-	PrivateKey []byte
+	ID            uint32    `json:"id"`
+	Name          string    `json:"name"`
+	CreatedAt     uint32    `json:"created_at"`
+	PublicKey     PublicKey `json:"public_key"`
+	PublicAddress PublicAddress
+	PrivateKey    PrivateKey
 }
 
-func NewUser(id uint32, name string, publicKey, privateKey []byte) *User {
+func NewUser(id uint32, name string, publicKey PublicKey, privateKey PrivateKey) *User {
+	// Generate the public address from the public key
+	addressBytes := crypto.GenerateAddress(publicKey[:])
+	var publicAddress PublicAddress
+	copy(publicAddress[:], addressBytes[:])
+
 	return &User{
-		ID:         id,
-		Name:       name,
-		CreatedAt:  uint32(time.Now().Unix()),
-		PublicKey:  publicKey,
-		PrivateKey: privateKey,
+		ID:            id,
+		Name:          name,
+		CreatedAt:     uint32(time.Now().Unix()),
+		PublicKey:     publicKey,
+		PrivateKey:    privateKey,
+		PublicAddress: publicAddress, // Assign the generated address
 	}
 }
 
-// Address returns the user's public key as their blockchain address
-func (u *User) Address() []byte {
-	return u.PublicKey
+// Address returns the user's pre-calculated HASH160 public address.
+func (u *User) Address() PublicAddress {
+	return u.PublicAddress
+}
+
+// GetPrivateKeyObject converts the raw private key bytes into a secp256k1.PrivateKey object.
+func (u *User) GetPrivateKeyObject() *secp256k1.PrivateKey {
+	return secp256k1.PrivKeyFromBytes(u.PrivateKey[:])
 }
