@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"bytes"
 	"sync"
 
 	"github.com/Quikmove/blockchain-uzd2/internal/crypto"
@@ -67,20 +68,20 @@ func (t *UTXOTracker) GetUTXO(outpoint d.Outpoint) (d.UTXO, bool) {
 	return utxo, exists
 }
 
-func (t *UTXOTracker) GetUTXOsForAddress(address d.Hash32) []d.UTXO {
+func (t *UTXOTracker) GetUTXOsForAddress(address []byte) []d.UTXO {
 	t.UTXOMutex.RLock()
 	defer t.UTXOMutex.RUnlock()
 
 	var utxos []d.UTXO
 	for _, utxo := range t.utxoSet {
-		if utxo.To == address {
+		if bytes.Equal(utxo.To, address) {
 			utxos = append(utxos, utxo)
 		}
 	}
 	return utxos
 }
 
-func (t *UTXOTracker) GetBalance(address d.Hash32) uint32 {
+func (t *UTXOTracker) GetBalance(address []byte) uint32 {
 	utxos := t.GetUTXOsForAddress(address)
 	var balance uint32
 	for _, utxo := range utxos {

@@ -46,9 +46,6 @@ func (bch *Blockchain) MineBlocks(parentCtx context.Context, blockCount, txCount
 					continue
 				}
 
-				if len(txs) < txCount {
-				}
-
 				body := d.NewBody(txs)
 				blk, err := bch.GenerateBlock(ctx, *body, version, difficulty)
 				if err != nil {

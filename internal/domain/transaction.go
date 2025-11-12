@@ -64,6 +64,6 @@ func (t *Transaction) Serialize() []byte {
 // UTXO represents an unspent transaction output
 type UTXO struct {
 	Outpoint Outpoint
-	To       [32]byte
+	To       []byte
 	Value    uint32
 }

@@ -70,7 +70,10 @@ func (t *MerkleTree) PrintTree(io io.Writer) {
 		current := queue[0]
 		queue = queue[1:]
 		for _, node := range current.nodes {
-			fmt.Fprintf(io, "Level %d: %x\n", current.level, node.Val)
+			_, err := fmt.Fprintf(io, "Level %d: %x\n", current.level, node.Val)
+			if err != nil {
+				return
+			}
 			if node.Left != nil {
 				queue = append(queue, levelNodes{level: current.level + 1, nodes: []*Node{node.Left}})
 			}

@@ -29,6 +29,10 @@ type UserGeneratorService struct {
 	keyGen KeyGenerator
 }
 
+func NewUserGeneratorService(keyGen KeyGenerator) *UserGeneratorService {
+	return &UserGeneratorService{keyGen: keyGen}
+}
+
 func (ugs *UserGeneratorService) GenerateUsers(names []string, n int) []d.User {
 	var users []d.User
 	id := uint32(1)

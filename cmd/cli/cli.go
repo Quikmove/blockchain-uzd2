@@ -10,6 +10,8 @@ import (
 
 	"github.com/Quikmove/blockchain-uzd2/internal/blockchain"
 	"github.com/Quikmove/blockchain-uzd2/internal/config"
+	"github.com/Quikmove/blockchain-uzd2/internal/crypto"
+	"github.com/Quikmove/blockchain-uzd2/internal/domain"
 	"github.com/Quikmove/blockchain-uzd2/internal/filetolist"
 	"github.com/joho/godotenv"
 	"github.com/urfave/cli/v3"
@@ -44,17 +46,20 @@ func main() {
 				Usage: "Start an interactive blockchain session",
 				Action: func(ctx context.Context, c *cli.Command) error {
 					cfg := config.LoadConfig()
-					hasher := blockchain.NewArchasHasher()
+					hasher := crypto.NewArchasHasher()
 					log.Println("Version:", cfg.Version)
 					log.Println("Difficulty:", cfg.Difficulty)
 					names := filetolist.FileToList(cfg.NameListPath)
-					users := blockchain.GenerateUsers(names, cfg.UserCount)
+					keyGen := crypto.NewKeyGenerator()
+					userGen := blockchain.NewUserGeneratorService(keyGen)
+					users := userGen.GenerateUsers(names, cfg.UserCount)
 					log.Println("User count:", len(users))
 					log.Println("Generating genesis block...")
-					bch := blockchain.InitBlockchainWithFunds(100, 1000000, users, cfg, hasher)
+					txSigner := crypto.NewTransactionSigner(hasher)
+					bch := blockchain.InitBlockchainWithFunds(100, 1000000, users, cfg, hasher, txSigner)
 					genesis, _ := bch.GetLatestBlock()
-					genesisHeader := genesis.GetHeader()
-					log.Println("Found a POW hash successfully with nonce:", genesisHeader.GetNonce())
+					genesisHeader := genesis.Header
+					log.Println("Found a POW hash successfully with nonce:", genesisHeader.Nonce)
 					log.Println("Added genesis block successfully")
 
 					if err != nil {
@@ -116,9 +121,9 @@ func main() {
 								fmt.Println("Error:", err)
 								continue
 							}
-							headBytes, err := json.MarshalIndent(block.GetHeader(), "", "  ")
+							headBytes, err := json.MarshalIndent(block.Header, "", "  ")
 							if err != nil {
-								fmt.Printf("Block Header at index %d: %+v\n", index, block.GetHeader())
+								fmt.Printf("Block Header at index %d: %+v\n", index, block.Header)
 								continue
 							}
 							fmt.Printf("Block Header at index %d:\n%s\n", index, string(headBytes))
@@ -130,11 +135,11 @@ func main() {
 							totalTxs := 0
 							totalDifficulty := uint32(0)
 							for _, block := range blocks {
-								body := block.GetBody()
-								txs := body.GetTransactions()
+								body := block.Body
+								txs := body.Transactions
 								totalTxs += len(txs)
-								header := block.GetHeader()
-								totalDifficulty += header.GetDifficulty()
+								header := block.Header
+								totalDifficulty += header.Difficulty
 							}
 							avgTxPerBlock := 0.0
 							if len(blocks) > 0 {
@@ -150,7 +155,7 @@ func main() {
 							fmt.Printf("║ Total Users:               %34d ║\n", len(users))
 							fmt.Printf("║ Current Version:           %34d ║\n", cfg.Version)
 							fmt.Printf("║ Current Difficulty:        %34d ║\n", cfg.Difficulty)
-							fmt.Println("╚═══════════════════════════════════════════════════════════════╝\n")
+							fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
 						case "validatechain":
 							fmt.Println("Validating blockchain...")
 							valid := true
@@ -161,15 +166,15 @@ func main() {
 
 								prevHash := bch.CalculateHash(prevBlock)
 
-								currentHeader := currentBlock.GetHeader()
-								if prevHash != currentHeader.GetPrevHash() {
+								currentHeader := currentBlock.Header
+								if prevHash != currentHeader.PrevHash {
 									fmt.Printf("❌ Block %d: Previous hash mismatch!\n", i)
 									valid = false
 								}
 
 								currentHash := bch.CalculateHash(currentBlock)
 
-								if !blockchain.IsHashValid(currentHash, currentHeader.GetDifficulty()) {
+								if !blockchain.IsHashValid(currentHash, currentHeader.Difficulty) {
 									fmt.Printf("❌ Block %d: Hash doesn't meet difficulty requirements!\n", i)
 									valid = false
 								}
@@ -263,8 +268,8 @@ func main() {
 								fmt.Println("Error:", err)
 								continue
 							}
-							body := block.GetBody()
-							txs := body.GetTransactions()
+							body := block.Body
+							txs := body.Transactions
 							bodyBytes, err := json.MarshalIndent(txs, "", "  ")
 							if err != nil {
 								fmt.Printf("Block Transactions at index %d: %+v\n", index, bodyBytes)
@@ -280,7 +285,7 @@ func main() {
 								continue
 							}
 
-							var user blockchain.User
+							var user domain.User
 							var found bool
 
 							for i := range users {
@@ -334,11 +339,11 @@ func main() {
 							fmt.Printf("║ User:       %-77s ║\n", user.Name)
 							fmt.Printf("║ Balance:    %-77d ║\n", balance)
 							fmt.Printf("║ Public Key: %-77s ║\n", pubKeyHex)
-							fmt.Println("╚═══════════════════════════════════════════════════════════════════════════════════════════╝\n")
+							fmt.Println("╚═══════════════════════════════════════════════════════════════════════════════════════════╝")
 						case "getallheaders":
-							headers := make([]blockchain.Header, 0, bch.Len())
+							headers := make([]domain.Header, 0, bch.Len())
 							for _, blk := range bch.Blocks() {
-								headers = append(headers, blk.GetHeader())
+								headers = append(headers, blk.Header)
 							}
 							headersBytes, err := json.MarshalIndent(headers, "", "  ")
 							if err != nil {
@@ -358,12 +363,12 @@ func main() {
 								pubKeyShort := pubKeyHex[:40]
 								fmt.Printf("║ %-30s ║ %13d ║ %40s ║\n", user.Name, balance, pubKeyShort)
 							}
-							fmt.Println("╚════════════════════════════════╩═══════════════╩══════════════════════════════════════════╝\n")
+							fmt.Println("╚════════════════════════════════╩═══════════════╩══════════════════════════════════════════╝")
 						case "richlist":
 							type UserBalance struct {
 								Name    string
 								Balance uint32
-								PubKey  blockchain.Hash32
+								PubKey  []byte
 							}
 
 							var userBalances []UserBalance
@@ -406,7 +411,7 @@ func main() {
 								fmt.Printf("║  %2d  ║ %-27s ║ %13d ║ %36s ║\n",
 									i+1, userBalances[i].Name, userBalances[i].Balance, pubKeyShort)
 							}
-							fmt.Println("╚══════╩═════════════════════════════╩═══════════════╩══════════════════════════════════════╝\n")
+							fmt.Println("╚══════╩═════════════════════════════╩═══════════════╩══════════════════════════════════════╝")
 						case "getutxos":
 							var input string
 							fmt.Println("Please enter user name or public key (hex):")
@@ -416,7 +421,7 @@ func main() {
 								continue
 							}
 
-							var user blockchain.User
+							var user domain.User
 							var found bool
 
 							for i := range users {
@@ -476,9 +481,9 @@ func main() {
 								fmt.Println("║                         No UTXOs found for this user                                      ║")
 							} else {
 								for i, utxo := range utxos {
-									txIDHex := fmt.Sprintf("%x", utxo.Out.TxID)
+									txIDHex := fmt.Sprintf("%x", utxo.Outpoint.TxID)
 									fmt.Printf("║ %4d ║ %13d ║ %s:%-6d ║\n",
-										i+1, utxo.Value, txIDHex[:58], utxo.Out.Index)
+										i+1, utxo.Value, txIDHex[:58], utxo.Outpoint.Index)
 									totalValue += utxo.Value
 								}
 							}
@@ -486,7 +491,7 @@ func main() {
 							fmt.Println("╠══════╩═══════════════╩═══════════════════════════════════════════════════════════════════╣")
 							fmt.Printf("║ Total UTXOs: %-10d                            Total Value: %-24d ║\n",
 								len(utxos), totalValue)
-							fmt.Println("╚══════════════════════════════════════════════════════════════════════════════════════════╝\n")
+							fmt.Println("╚══════════════════════════════════════════════════════════════════════════════════════════╝")
 						case "help":
 							fmt.Println("\n╔═══════════════════════════════════════════════════════════════════════════════════════════╗")
 							fmt.Println("║                              BLOCKCHAIN CLI - HELP                                        ║")
@@ -515,7 +520,7 @@ func main() {
 							fmt.Println("║   getutxos   - Show all UTXOs for a user (by name or public key)                          ║")
 							fmt.Println("║                                                                                           ║")
 							fmt.Println("║                                                                                           ║")
-							fmt.Println("╚═══════════════════════════════════════════════════════════════════════════════════════════╝\n")
+							fmt.Println("╚═══════════════════════════════════════════════════════════════════════════════════════════╝")
 						case "exit":
 							fmt.Println("Exiting...")
 							return nil

@@ -22,7 +22,7 @@ func CreateGenesisBlock(ctx context.Context, txs Transactions, conf *config.Conf
 	)
 	body := d.NewBody(txs)
 	genesisBlock := d.NewBlock(*header, *body)
-	nonce, _, err := genesisBlock.Header.FindValidNonce(ctx, hasher)
+	nonce, _, err := FindValidNonce(ctx, &genesisBlock.Header, hasher)
 	if err != nil {
 		return d.Block{}, err
 	}

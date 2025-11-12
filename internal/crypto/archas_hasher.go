@@ -42,7 +42,6 @@ func (pc *PeriodicCounter) Reset() {
 	pc.count = 0
 }
 
-// ArchasHasher implements a custom hash algorithm
 type ArchasHasher struct{}
 
 // NewArchasHasher creates a new Archas hasher

@@ -7,18 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math/rand"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Quikmove/blockchain-uzd2/internal/config"
 	c "github.com/Quikmove/blockchain-uzd2/internal/crypto"
 	d "github.com/Quikmove/blockchain-uzd2/internal/domain"
 )
-
-var userCount atomic.Uint32
 
 type Blockchain struct {
 	blocks      []d.Block
@@ -177,11 +173,9 @@ func HashString(str string, hasher c.Hasher) (d.Hash32, error) {
 
 func (bch *Blockchain) CalculateHash(block d.Block) d.Hash32 {
 	if block.Header.Nonce == 0 {
-		log.Println("nonce not set in CalculateHash")
 		return d.Hash32{}
 	}
 	if block.Header.PrevHash.IsZero() || block.Header.MerkleRoot.IsZero() {
-		log.Println("prev hash or merkle root not set in CalculateHash")
 		return d.Hash32{}
 	}
 	hash := bch.hasher.Hash(block.Header.Serialize())
@@ -430,21 +424,18 @@ func (bch *Blockchain) GenerateRandomTransactions(users []d.User, low, high, n i
 		}
 
 		for j := range tx.Inputs {
-			hashToSign := SignatureHash(tx, selectedUTXOs[j].Value, selectedUTXOs[j].To, bch.hasher)
-			sig, err := bch.txSigner.SignTransaction(hashToSign)
-			if err != nil {
-				return nil, fmt.Errorf("failed to sign transaction input: %w", err)
-			}
-			tx.Inputs[j].Sig = sig
+			hashToSign := SignatureHash(tx, selectedUTXOs[j].Value, selectedUTXOs[j].To[:], bch.hasher)
+			sig := bch.txSigner.SignTransaction(hashToSign[:], sender.PrivateKey)
+
+			tx.Inputs[j].Sig = sig[:]
 		}
 
 		txID := bch.hasher.Hash(tx.Serialize())
-
 		tx.TxID = txID
 
 		generatedTxs = append(generatedTxs, tx)
 		for _, utxo := range selectedUTXOs {
-			usedOutpoints[utxo.Out] = true
+			usedOutpoints[utxo.Outpoint] = true
 		}
 	}
 
@@ -463,12 +454,12 @@ func (bch *Blockchain) GenerateBlock(ctx context.Context, body d.Body, version u
 	t := time.Now()
 
 	newHeader.Version = version
-	prevHash := bch.CalculateHash(latestBlock)
-	newHeader.PrevHash = prevHash
 	newHeader.Timestamp = uint32(t.Unix())
+	newHeader.PrevHash = bch.CalculateHash(latestBlock)
 	newHeader.MerkleRoot = MerkleRootHash(body, bch.hasher)
 	newHeader.Difficulty = difficulty
-	nonce, _, err := newHeader.FindValidNonce(ctx, bch.hasher)
+
+	nonce, _, err := FindValidNonce(ctx, &newHeader, bch.hasher)
 	if err != nil {
 		return d.Block{}, err
 	}
@@ -495,13 +486,13 @@ func (bch *Blockchain) Print(w io.Writer) error {
 	enc.SetIndent("", "  ")
 	return enc.Encode(blocks)
 }
-func (bch *Blockchain) GetUserBalance(address d.Hash32) uint32 {
+func (bch *Blockchain) GetUserBalance(address []byte) uint32 {
 	bch.chainMutex.RLock()
 	defer bch.chainMutex.RUnlock()
 	balance := bch.utxoTracker.GetBalance(address)
 	return balance
 }
-func (bch *Blockchain) GetUTXOsForAddress(address d.Hash32) []d.UTXO {
+func (bch *Blockchain) GetUTXOsForAddress(address []byte) []d.UTXO {
 	return bch.utxoTracker.GetUTXOsForAddress(address)
 }
 func (bch *Blockchain) String() string {

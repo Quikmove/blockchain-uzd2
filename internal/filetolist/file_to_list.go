@@ -11,7 +11,8 @@ func FileToList(path string) []string {
 	if err != nil {
 		log.Fatalf("Failed to open file: %v", err)
 	}
-	defer data.Close()
+	defer func(data *os.File) {
+	}(data)
 
 	// read by line and append
 	var list []string
