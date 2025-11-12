@@ -175,7 +175,7 @@ func (bch *Blockchain) CalculateHash(block d.Block) d.Hash32 {
 	if block.Header.Nonce == 0 {
 		return d.Hash32{}
 	}
-	if block.Header.PrevHash.IsZero() || block.Header.MerkleRoot.IsZero() {
+	if block.Header.PrevHash.IsZero() && block.Header.MerkleRoot.IsZero() {
 		return d.Hash32{}
 	}
 	hash := bch.hasher.Hash(block.Header.Serialize())
