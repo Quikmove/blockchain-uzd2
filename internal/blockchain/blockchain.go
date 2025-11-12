@@ -54,7 +54,7 @@ func (bch *Blockchain) GetLatestBlock() (d.Block, error) {
 	return bch.blocks[len(bch.blocks)-1], nil
 }
 func (bch *Blockchain) AddBlock(b d.Block) error {
-	// Validate block structure and transactions
+
 	if err := bch.ValidateBlock(b); err != nil {
 		return fmt.Errorf("block validation failed: %w", err)
 	}
@@ -192,7 +192,7 @@ func IsHashValid(hash d.Hash32, diff uint32) bool {
 		return true
 	}
 
-	bits := diff * 4 // * 8 / 2
+	bits := diff * 4 // * 8 / 2 -> 4
 	if bits > 8*uint32(len(hash)) {
 		return false
 	}
@@ -241,20 +241,17 @@ func (bch *Blockchain) ValidateBlock(b d.Block) error {
 
 	isGenesis := height == 0
 
-	// Validate block has transactions
 	body := b.Body
 	txs := body.Transactions
 	if len(txs) == 0 {
 		return errors.New("block has no transactions")
 	}
 
-	// Validate merkle root
 	computedMerkleRoot := MerkleRootHash(body, bch.hasher)
 	if computedMerkleRoot != b.Header.MerkleRoot {
 		return fmt.Errorf("merkle root mismatch: computed %x, expected %x", computedMerkleRoot, b.Header.MerkleRoot)
 	}
 
-	// Validate block hash meets difficulty (for non-genesis blocks)
 	if !isGenesis {
 		hash := bch.CalculateHash(b)
 		if !IsHashValid(hash, b.Header.Difficulty) {
@@ -262,14 +259,12 @@ func (bch *Blockchain) ValidateBlock(b d.Block) error {
 		}
 	}
 
-	// Validate timestamp reasonableness (not too far in future, allow some past tolerance)
 	currentTime := uint32(time.Now().Unix())
-	maxFutureTime := currentTime + 7200 // Allow 2 hours in future
+	maxFutureTime := currentTime + 7200
 	if b.Header.Timestamp > maxFutureTime {
 		return fmt.Errorf("block timestamp too far in future: %d > %d", b.Header.Timestamp, maxFutureTime)
 	}
 
-	// Validate transaction IDs
 	for i, tx := range txs {
 		expectedTxID := bch.hasher.Hash(tx.Serialize())
 		if tx.TxID != expectedTxID {
@@ -359,12 +354,11 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block, users []d.User) erro
 			}
 			inputSum += utxo.Value
 
-			// Verify signature if users are provided
 			if users != nil && len(input.Sig) > 0 {
-				// Get public key from address
+
 				publicKey, hasKey := addressToPublicKey[utxo.To]
 				if !hasKey {
-					// Try to find user by matching address
+
 					for _, user := range users {
 						if user.PublicAddress == utxo.To {
 							publicKey = user.PublicKey
@@ -375,16 +369,14 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block, users []d.User) erro
 				}
 
 				if hasKey {
-					// Compute signature hash
+
 					hashToVerify := SignatureHash(tx, utxo.Value, utxo.To[:], bch.hasher)
 
-					// Convert public key to secp256k1 format
 					publicKeyObj, err := secp256k1.ParsePubKey(publicKey[:])
 					if err != nil {
 						return fmt.Errorf("tx %d input %d: invalid public key: %w", i, inputIdx, err)
 					}
 
-					// Verify signature
 					if !bch.txSigner.VerifySignature(hashToVerify[:], input.Sig, publicKeyObj) {
 						return fmt.Errorf("tx %d input %d: invalid signature", i, inputIdx)
 					}
