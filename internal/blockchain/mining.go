@@ -157,3 +157,154 @@ func FindValidNonce(ctx context.Context, header *d.Header, hasher c.Hasher) (uin
 		}
 	}
 }
+
+func (bch *Blockchain) MineBlocksDecentralized(
+	parentCtx context.Context,
+	blockCount, txCount, candidateCount int,
+	initialTimeLimit time.Duration,
+	initialAttemptLimit uint64,
+	timeMultiplier, attemptMultiplier float64,
+	low, high int,
+	users []d.User,
+	version, difficulty uint32,
+) error {
+	if blockCount <= 0 {
+		return nil
+	}
+
+	for round := 0; round < blockCount; round++ {
+		if parentCtx.Err() != nil {
+			return parentCtx.Err()
+		}
+
+		timeLimit := initialTimeLimit
+		attemptLimit := initialAttemptLimit
+		var miningSuccess bool
+
+		for !miningSuccess {
+			if parentCtx.Err() != nil {
+				return parentCtx.Err()
+			}
+
+			candidateBlocks := make([]d.Body, 0, candidateCount)
+			for i := 0; i < candidateCount; i++ {
+				txs, err := bch.GenerateRandomTransactions(users, low, high, txCount)
+				if err != nil {
+					if errors.Is(err, context.Canceled) {
+						return err
+					}
+					log.Printf("Warning: failed to generate transactions for candidate %d: %v", i, err)
+					continue
+				}
+
+				if len(txs) == 0 {
+					continue
+				}
+
+				body := d.NewBody(txs)
+				candidateBlocks = append(candidateBlocks, *body)
+			}
+
+			if len(candidateBlocks) == 0 {
+				return errors.New("could not generate any candidate blocks")
+			}
+
+			roundCtx, cancelRound := context.WithCancel(parentCtx)
+			defer cancelRound()
+
+			var timeoutCtx context.Context
+			var timeoutCancel context.CancelFunc
+			if timeLimit > 0 {
+				timeoutCtx, timeoutCancel = context.WithTimeout(roundCtx, timeLimit)
+			} else {
+				timeoutCtx, timeoutCancel = context.WithCancel(roundCtx)
+			}
+			defer timeoutCancel()
+
+			blockChan := make(chan d.Block, 1)
+			var wg sync.WaitGroup
+
+			for i, body := range candidateBlocks {
+				wg.Add(1)
+				go func(candidateID int, candidateBody d.Body) {
+					defer wg.Done()
+
+					latestBlock, err := bch.GetLatestBlock()
+					if err != nil {
+						return
+					}
+
+					var newHeader d.Header
+					newHeader.Version = version
+					newHeader.Timestamp = uint32(time.Now().Unix())
+					newHeader.PrevHash = bch.CalculateHash(latestBlock)
+					newHeader.MerkleRoot = MerkleRootHash(candidateBody, bch.hasher)
+					newHeader.Difficulty = difficulty
+
+					var nonce uint32
+					var attempts uint64
+
+					for {
+						select {
+						case <-timeoutCtx.Done():
+							return
+						default:
+						}
+
+						if attemptLimit > 0 && attempts >= attemptLimit {
+							return
+						}
+
+						newHeader.Nonce = nonce
+						hash := bch.hasher.Hash(newHeader.Serialize())
+						if IsHashValid(hash, difficulty) {
+							newBlock := d.Block{
+								Header: newHeader,
+								Body:   candidateBody,
+							}
+
+							err := bch.AddBlock(newBlock)
+							if err != nil {
+								return
+							}
+
+							select {
+							case blockChan <- newBlock:
+							default:
+							}
+							return
+						}
+
+						nonce++
+						attempts++
+
+						if nonce == ^uint32(0) {
+							return
+						}
+					}
+				}(i, body)
+			}
+
+			select {
+			case blk := <-blockChan:
+				miningSuccess = true
+				blockIndex := bch.Len() - 1
+				blockTxs := blk.Body.Transactions
+				log.Printf("Round %d: Successfully mined block at index %d (block #%d) with %d transactions and nonce %d\n",
+					round+1, blockIndex, round+1, len(blockTxs), blk.Header.Nonce)
+			case <-timeoutCtx.Done():
+				if !miningSuccess {
+					timeLimit = time.Duration(float64(timeLimit) * timeMultiplier)
+					log.Printf("Round %d: No block mined within time limit, retrying with increased time limit: %v", round+1, timeLimit)
+				}
+			case <-parentCtx.Done():
+				wg.Wait()
+				return parentCtx.Err()
+			}
+
+			wg.Wait()
+		}
+	}
+
+	return nil
+}
