@@ -3,192 +3,245 @@ package blockchain
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math/rand"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Quikmove/blockchain-uzd2/internal/config"
+	c "github.com/Quikmove/blockchain-uzd2/internal/crypto"
+	d "github.com/Quikmove/blockchain-uzd2/internal/domain"
 )
 
-var userCount atomic.Uint32
-
 type Blockchain struct {
-	blocks     []Block
-	ChainMutex *sync.RWMutex
-	UTXOSet    map[Outpoint]UTXO
-	UTXOMutex  *sync.RWMutex
+	blocks      []d.Block
+	chainMutex  *sync.RWMutex
+	txGenMutex  *sync.Mutex
+	utxoTracker *UTXOTracker
+	hasher      c.Hasher
+	txSigner    c.TransactionSigner
 }
 
-func NewBlockchain() *Blockchain {
+func NewBlockchain(hasher c.Hasher, signer c.TransactionSigner) *Blockchain {
 	return &Blockchain{
-		blocks:     []Block{},
-		ChainMutex: &sync.RWMutex{},
-		UTXOSet:    make(map[Outpoint]UTXO),
-		UTXOMutex:  &sync.RWMutex{},
+		blocks:      []d.Block{},
+		chainMutex:  &sync.RWMutex{},
+		txGenMutex:  &sync.Mutex{},
+		utxoTracker: NewUTXOTracker(),
+		hasher:      hasher,
+		txSigner:    signer,
 	}
 }
 
-func (bc *Blockchain) GetBlock(index int) (Block, error) {
-	bc.ChainMutex.RLock()
-	defer bc.ChainMutex.RUnlock()
-	if index < 0 || index >= len(bc.blocks) {
-		return Block{}, errors.New("block index out of range")
+func (bch *Blockchain) GetBlock(index int) (d.Block, error) {
+	bch.chainMutex.RLock()
+	defer bch.chainMutex.RUnlock()
+	if index < 0 || index >= len(bch.blocks) {
+		return d.Block{}, errors.New("block index out of range")
 	}
-	return bc.blocks[index], nil
+	return bch.blocks[index], nil
 }
-func (bc *Blockchain) GetLatestBlock() (Block, error) {
-	bc.ChainMutex.RLock()
-	defer bc.ChainMutex.RUnlock()
-	if len(bc.blocks) == 0 {
-		return Block{}, errors.New("blockchain is empty")
+func (bch *Blockchain) GetLatestBlock() (d.Block, error) {
+	bch.chainMutex.RLock()
+	defer bch.chainMutex.RUnlock()
+	if len(bch.blocks) == 0 {
+		return d.Block{}, errors.New("blockchain is empty")
 	}
-	return bc.blocks[len(bc.blocks)-1], nil
+	return bch.blocks[len(bch.blocks)-1], nil
 }
-func (bc *Blockchain) AddBlock(b Block) error {
-	bc.ChainMutex.Lock()
-	defer bc.ChainMutex.Unlock()
-	if !bc.IsBlockValid(b) {
-		return errors.New("invalid block")
+func (bch *Blockchain) AddBlock(b d.Block) error {
+	if err := bch.ValidateBlockTransactions(b); err != nil {
+		return fmt.Errorf("block validation failed: %w", err)
 	}
-	bc.blocks = append(bc.blocks, b)
+
+	bch.chainMutex.Lock()
+	defer bch.chainMutex.Unlock()
+
+	height := len(bch.blocks)
+
+	if height != 0 {
+		tip := bch.blocks[height-1]
+		tipHash := bch.CalculateHash(tip)
+		header := b.Header
+		if tipHash != header.PrevHash {
+			return errors.New("new block's prev hash does not match tip hash")
+		}
+		hash := bch.CalculateHash(b)
+		if !IsHashValid(hash, header.Difficulty) {
+			return errors.New("new block hash does not meet difficulty requirements")
+		}
+	}
+
+	bch.blocks = append(bch.blocks, b)
+
+	bch.utxoTracker.ScanBlock(b, bch.hasher)
+
 	return nil
 }
-func (bc *Blockchain) Blocks() []Block {
-	bc.ChainMutex.RLock()
-	defer bc.ChainMutex.RUnlock()
-	var blocksCopy = make([]Block, len(bc.blocks))
-	copy(blocksCopy, bc.blocks)
+
+func (bch *Blockchain) Blocks() []d.Block {
+	bch.chainMutex.RLock()
+	defer bch.chainMutex.RUnlock()
+	var blocksCopy = make([]d.Block, len(bch.blocks))
+
+	for i, b := range bch.blocks {
+		var bodyCopy d.Body
+		body := b.Body
+		txs := body.Transactions
+		if len(txs) > 0 {
+			bodyCopy.Transactions = (make([]d.Transaction, len(txs)))
+			for j, tx := range txs {
+				var inputs []d.TxInput
+				if len(tx.Inputs) > 0 {
+					inputs = make([]d.TxInput, len(tx.Inputs))
+					for k, in := range tx.Inputs {
+						sigCopy := make([]byte, len(in.Sig))
+						copy(sigCopy, in.Sig)
+						inputs[k] = d.TxInput{
+							Prev: d.Outpoint{
+								TxID:  in.Prev.TxID,
+								Index: in.Prev.Index,
+							},
+							Sig: sigCopy,
+						}
+					}
+				}
+
+				var outputs []d.TxOutput
+				if len(tx.Outputs) > 0 {
+					outputs = make([]d.TxOutput, len(tx.Outputs))
+					copy(outputs, tx.Outputs)
+				}
+				bodyCopy.Transactions[j] = d.Transaction{
+					TxID:    tx.TxID,
+					Inputs:  inputs,
+					Outputs: outputs,
+				}
+			}
+		} else {
+			bodyCopy.Transactions = (nil)
+		}
+		blocksCopy[i] = d.Block{
+			Header: b.Header,
+			Body:   bodyCopy,
+		}
+	}
 	return blocksCopy
 }
-func (bc *Blockchain) Len() int {
-	bc.ChainMutex.RLock()
-	defer bc.ChainMutex.RUnlock()
-	return len(bc.blocks)
+func (bch *Blockchain) Len() int {
+	bch.chainMutex.RLock()
+	defer bch.chainMutex.RUnlock()
+	return len(bch.blocks)
 }
-func InitBlockchainWithFunds(low, high uint32, users []User, cfg *config.Config) *Blockchain {
-	fundTransactions, err := GenerateFundTransactionsForUsers(users, low, high)
+func InitBlockchainWithFunds(low, high uint32, users []d.User, cfg *config.Config, hasher c.Hasher, txSigner c.TransactionSigner) *Blockchain {
+	fundTransactions, err := GenerateFundTransactionsForUsers(users, low, high, hasher)
 	if err != nil {
 		panic(err)
 	}
-	genesisBlock, err := CreateGenesisBlock(context.Background(), fundTransactions, cfg)
+	genesisBlock, err := CreateGenesisBlock(context.Background(), fundTransactions, cfg, hasher)
 	if err != nil {
 		panic(err)
 	}
-	blockchain := NewBlockchain()
+	blockchain := NewBlockchain(hasher, txSigner)
 	blockchain.blocks = append(blockchain.blocks, genesisBlock)
+
+	blockchain.utxoTracker.ScanBlock(genesisBlock, hasher)
+
 	return blockchain
 }
 
-type Hash32 [32]byte
-
-func (h Hash32) HexString() string {
-	return hex.EncodeToString(h[:])
-}
-func (h Hash32) MarshalJSON() ([]byte, error) {
-	s := "\"" + h.HexString() + "\""
-	return []byte(s), nil
+func MerkleRootHash(b d.Body, hasher c.Hasher) d.Hash32 {
+	return merkleRootHash(b.Transactions, hasher)
 }
 
-type Block struct {
-	Header Header `json:"header"`
-	Body   Body   `json:"body"`
-}
-type Header struct {
-	Version    uint32 `json:"version"`
-	Timestamp  uint32 `json:"timestamp"`
-	PrevHash   Hash32 `json:"prev_hash"`
-	MerkleRoot Hash32 `json:"merkle_root"`
-	Difficulty uint32 `json:"difficulty"`
-	Nonce      uint32 `json:"nonce"`
-}
-type Body struct {
-	Transactions Transactions `json:"transactions"`
+type Transactions []d.Transaction
+
+func HashBytes(bytes []byte, hasher c.Hasher) d.Hash32 {
+	h := hasher.Hash(bytes)
+
+	return h
 }
 
-func (h Header) Serialize() []byte {
-	var buf bytes.Buffer
+func HashString(str string, hasher c.Hasher) (d.Hash32, error) {
+	h := HashBytes([]byte(str), hasher)
 
-	_ = binary.Write(&buf, binary.LittleEndian, h.Version)
-	buf.Write(reverse32(h.PrevHash))
-	buf.Write(reverse32(h.MerkleRoot))
-	_ = binary.Write(&buf, binary.LittleEndian, h.Timestamp)
-	_ = binary.Write(&buf, binary.LittleEndian, h.Difficulty)
-	_ = binary.Write(&buf, binary.LittleEndian, h.Nonce)
+	return h, nil
+}
 
-	return buf.Bytes()
-}
-func (h Header) Hash() Hash32 {
-	b := h.Serialize()
-	x := sha256.Sum256(b)
-	return sha256.Sum256(x[:])
-}
-func reverse32(in Hash32) []byte {
-	out := make([]byte, 32)
-	for i := 0; i < 32; i++ {
-		out[i] = in[31-i]
+func (bch *Blockchain) CalculateHash(block d.Block) d.Hash32 {
+	if block.Header.Nonce == 0 {
+		return d.Hash32{}
 	}
-	return out
-}
-func (b Body) MerkleRootHash() Hash32 {
-	return MerkleRootHash(b.Transactions)
-}
-
-type Transactions []Transaction
-
-func HashBytes(bytes []byte) Hash32 {
-	return sha256.Sum256(bytes)
-}
-
-func HashString(str string) Hash32 {
-	return HashBytes([]byte(str))
-}
-
-func CalculateHash(block Block) Hash32 {
-	// use 6 main header properties: prev block hash, timestamp, version, merkel root hash, nonce, difficulty target
-	hash := block.Header.Hash()
+	if block.Header.PrevHash.IsZero() && block.Header.MerkleRoot.IsZero() {
+		return d.Hash32{}
+	}
+	hash := bch.hasher.Hash(block.Header.Serialize())
 	return hash
 }
-func IsHashValid(hash Hash32, diff uint32) bool {
-	for i := uint32(0); i < diff && i < 32; i++ {
-		if hash[i] != 0 {
-			return false
-		}
-	}
-	return true
-}
-func (b *Blockchain) IsBlockValid(newBlock Block) bool {
-	oldBlock := b.blocks[len(b.blocks)-1]
-	if CalculateHash(oldBlock) != newBlock.Header.PrevHash {
-		return false
-	}
-
-	diff := newBlock.Header.Difficulty
-	hash := CalculateHash(newBlock)
-
-	if IsHashValid(hash, diff) {
+func IsHashValid(hash d.Hash32, diff uint32) bool {
+	if diff == 0 {
 		return true
 	}
 
-	return true
+	bits := diff * 4 // * 8 / 2
+	if bits > 8*uint32(len(hash)) {
+		return false
+	}
+	fullBytes := bits / 8
+	remBits := bits % 8
+	var zero [32]byte
+	if fullBytes > 0 {
+		if !bytes.Equal(hash[:fullBytes], zero[:fullBytes]) {
+			return false
+		}
+	}
+	if remBits == 0 {
+		return true
+	}
+	mask := byte(0xFF << (8 - remBits))
+	return (hash[fullBytes] & mask) == 0
+}
+func (bch *Blockchain) IsBlockValid(newBlock d.Block) bool {
+	bch.chainMutex.RLock()
+	height := len(bch.blocks)
+	bch.chainMutex.RUnlock()
+	if height == 0 {
+		return true
+	}
+	oldBlock, err := bch.GetLatestBlock()
+	if err != nil {
+		panic(err)
+	}
+
+	oldBlockHash := bch.CalculateHash(oldBlock)
+	header := newBlock.Header
+	if oldBlockHash != header.PrevHash {
+		return false
+	}
+
+	diff := header.Difficulty
+	hash := bch.CalculateHash(newBlock)
+
+	return IsHashValid(hash, diff)
 }
 
-func (bc *Blockchain) ValidateBlock(b Block) error {
-	bc.ChainMutex.RLock()
-	height := len(bc.blocks)
-	bc.ChainMutex.RUnlock()
+func (bch *Blockchain) ValidateBlock(b d.Block) error {
+	bch.chainMutex.RLock()
+	height := len(bch.blocks)
+	bch.chainMutex.RUnlock()
 
 	isGenesis := height == 0
 
-	if len(b.Body.Transactions) == 0 {
+	body := b.Body
+	txs := body.Transactions
+	if len(txs) == 0 {
 		return errors.New("block has no transactions")
 	}
 
-	for i, tx := range b.Body.Transactions {
+	for i, tx := range txs {
 		isCoinbase := len(tx.Inputs) == 0
 		if isGenesis {
 			if !isCoinbase {
@@ -203,59 +256,249 @@ func (bc *Blockchain) ValidateBlock(b Block) error {
 			continue
 		}
 
-		if !isCoinbase && len(tx.Inputs) == 0 {
+		if len(tx.Inputs) == 0 {
 			return fmt.Errorf("non-coinbase tx has no inputs (index %d)", i)
 		}
 
 	}
 	return nil
 }
-func (h Header) FindValidNonce(ctx context.Context) (uint32, Hash32, error) {
-	if h.MerkleRoot == (Hash32{}) {
-		return 0, Hash32{}, errors.New("merkle root not set")
+
+func (bch *Blockchain) ValidateBlockTransactions(b d.Block) error {
+	bch.chainMutex.RLock()
+	height := len(bch.blocks)
+	bch.chainMutex.RUnlock()
+
+	isGenesis := height == 0
+
+	body := b.Body
+	txs := body.Transactions
+	if len(txs) == 0 {
+		return errors.New("block has no transactions")
 	}
 
-	var nonce uint32
+	spentInBlock := make(map[d.Outpoint]bool)
 
-	for {
-		select {
-		case <-ctx.Done():
-			return 0, Hash32{}, ctx.Err()
-		default:
-			h.Nonce = nonce
-			hash := h.Hash()
-			if IsHashValid(hash, h.Difficulty) {
-				return nonce, hash, nil
-			}
-			nonce++
+	for i, tx := range txs {
+		isCoinbase := len(tx.Inputs) == 0
 
-			if nonce == 0 {
-				return 0, Hash32{}, errors.New("nonce overflow")
+		if isGenesis && !isCoinbase {
+			return fmt.Errorf("genesis tx %d must be coinbase-like", i)
+		}
+
+		if isCoinbase {
+			if i != 0 {
+				return fmt.Errorf("coinbase tx only allowed as first tx (found at index %d)", i)
 			}
+			if len(tx.Outputs) == 0 {
+				return d.ErrInvalidTransaction
+			}
+			continue
+		}
+
+		if len(tx.Inputs) == 0 {
+			return d.ErrInvalidTransaction
+		}
+
+		if len(tx.Outputs) == 0 {
+			return fmt.Errorf("tx %d has no outputs", i)
+		}
+
+		var inputSum uint32
+		for _, input := range tx.Inputs {
+			if spentInBlock[input.Prev] {
+				return d.ErrDoubleSpend
+			}
+
+			utxo, exists := bch.utxoTracker.GetUTXO(input.Prev)
+			if !exists {
+				return d.ErrUTXONotFound
+			}
+
+			if inputSum > ^uint32(0)-utxo.Value {
+				return d.ErrNoValidNonce
+			}
+			inputSum += utxo.Value
+
+			spentInBlock[input.Prev] = true
+		}
+
+		var outputSum uint32
+		for outputIdx, output := range tx.Outputs {
+			if output.Value == 0 {
+				return fmt.Errorf("tx %d output %d: zero-value output not allowed", i, outputIdx)
+			}
+
+			if outputSum > ^uint32(0)-output.Value {
+				return fmt.Errorf("tx %d: output sum overflow", i)
+			}
+			outputSum += output.Value
+		}
+
+		if inputSum < outputSum {
+			return fmt.Errorf("tx %d: outputs (%d) exceed inputs (%d)", i, outputSum, inputSum)
 		}
 	}
+
+	return nil
 }
 
-func GenerateBlock(ctx context.Context, oldBlock Block, body Body, version uint32, difficulty uint32) (Block, error) {
+func (bch *Blockchain) GenerateRandomTransactions(users []d.User, low, high, n int) (Transactions, error) {
+	bch.txGenMutex.Lock()
+	defer bch.txGenMutex.Unlock()
 
-	var newHeader Header
+	if high < low || low < 0 {
+		return nil, errors.New("invalid amount range")
+	}
+	if len(users) < 2 {
+		return nil, errors.New("not enough users to generate transactions")
+	}
+
+	var generatedTxs Transactions
+	userAmount := len(users)
+	usedOutpoints := make(map[d.Outpoint]bool)
+
+	maxAttempts := n * 10
+	attempts := 0
+
+	for len(generatedTxs) < n && attempts < maxAttempts {
+		attempts++
+
+		senderIndex := rand.Intn(userAmount)
+		recipientIndex := rand.Intn(userAmount)
+		for senderIndex == recipientIndex {
+			recipientIndex = rand.Intn(userAmount)
+		}
+		sender := users[senderIndex]
+		recipient := users[recipientIndex]
+
+		utxos := bch.utxoTracker.GetUTXOsForAddress(sender.PublicAddress)
+
+		if len(utxos) == 0 {
+			continue
+		}
+
+		amount := uint32(low + rand.Intn(high-low+1))
+		if amount == 0 {
+			continue
+		}
+
+		var inputs []d.TxInput
+		var selectedUTXOs []d.UTXO
+		var totalInput uint32
+
+		for _, utxo := range utxos {
+			if totalInput >= amount {
+				break
+			}
+			if usedOutpoints[utxo.Outpoint] {
+				continue
+			}
+			if totalInput > ^uint32(0)-utxo.Value {
+				continue
+			}
+			inputs = append(inputs, d.TxInput{Prev: utxo.Outpoint})
+			selectedUTXOs = append(selectedUTXOs, utxo)
+			totalInput += utxo.Value
+		}
+
+		if len(inputs) == 0 {
+			continue
+		}
+
+		if totalInput < amount {
+			continue
+		}
+
+		var outputs []d.TxOutput
+		outputs = append(outputs, d.TxOutput{Value: amount, To: recipient.PublicAddress})
+
+		if totalInput > amount {
+			change := totalInput - amount
+			outputs = append(outputs, d.TxOutput{Value: change, To: sender.PublicAddress})
+		}
+
+		tx := d.Transaction{
+			Inputs:  inputs,
+			Outputs: outputs,
+		}
+
+		for j := range tx.Inputs {
+			hashToSign := SignatureHash(tx, selectedUTXOs[j].Value, selectedUTXOs[j].To[:], bch.hasher)
+			sig := bch.txSigner.SignTransaction(hashToSign[:], sender.GetPrivateKeyObject())
+			tx.Inputs[j].Sig = sig[:]
+		}
+
+		txID := bch.hasher.Hash(tx.Serialize())
+		tx.TxID = txID
+
+		generatedTxs = append(generatedTxs, tx)
+		for _, utxo := range selectedUTXOs {
+			usedOutpoints[utxo.Outpoint] = true
+		}
+	}
+
+	if len(generatedTxs) == 0 {
+		return nil, errors.New("could not generate any valid transactions, users may not have sufficient funds")
+	}
+
+	return generatedTxs, nil
+}
+func (bch *Blockchain) GenerateBlock(ctx context.Context, body d.Body, version uint32, difficulty uint32) (d.Block, error) {
+	latestBlock, err := bch.GetLatestBlock()
+	if err != nil {
+		return d.Block{}, err
+	}
+	var newHeader d.Header
 	t := time.Now()
 
 	newHeader.Version = version
-	newHeader.PrevHash = CalculateHash(oldBlock)
 	newHeader.Timestamp = uint32(t.Unix())
-	newHeader.MerkleRoot = body.MerkleRootHash()
+	newHeader.PrevHash = bch.CalculateHash(latestBlock)
+	newHeader.MerkleRoot = MerkleRootHash(body, bch.hasher)
 	newHeader.Difficulty = difficulty
-	nonce, _, err := newHeader.FindValidNonce(ctx)
+
+	nonce, _, err := FindValidNonce(ctx, &newHeader, bch.hasher)
 	if err != nil {
-		return Block{}, err
+		return d.Block{}, err
 	}
 	newHeader.Nonce = nonce
 
-	newBlock := Block{
+	newBlock := d.Block{
 		Header: newHeader,
 		Body:   body,
 	}
 
 	return newBlock, nil
+}
+func (bch *Blockchain) GetBlockByIndex(index int) (d.Block, error) {
+	bch.chainMutex.RLock()
+	defer bch.chainMutex.RUnlock()
+	if index < 0 || index >= len(bch.blocks) {
+		return d.Block{}, errors.New("block index out of range")
+	}
+	return bch.blocks[index], nil
+}
+func (bch *Blockchain) Print(w io.Writer) error {
+	blocks := bch.Blocks()
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(blocks)
+}
+func (bch *Blockchain) GetUserBalance(address d.PublicAddress) uint32 {
+	bch.chainMutex.RLock()
+	defer bch.chainMutex.RUnlock()
+	balance := bch.utxoTracker.GetBalance(address)
+	return balance
+}
+func (bch *Blockchain) GetUTXOsForAddress(address d.PublicAddress) []d.UTXO {
+	return bch.utxoTracker.GetUTXOsForAddress(address)
+}
+func (bch *Blockchain) String() string {
+	blocks := bch.Blocks()
+	b, err := json.MarshalIndent(blocks, "", "  ")
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }

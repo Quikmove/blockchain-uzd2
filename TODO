@@ -1,7 +1,75 @@
-- [ ] Write tests for expected output
-- [ ] Decouple data layers
-- [ ] Create interface for Hasher to be able to replace with own hash implementation later.
-- [ ] Implement UTXO validation logic
-- [ ] Implement UTXO tracking
-- [ ] Create better API endpoints, hide transactions in general endpoint
+## Completed Tasks
+- [x] Create interface for Hasher to be able to replace with own hash implementation later
+- [x] Implement UTXO validation logic
+- [x] Implement UTXO tracking
 - [x] Move logic into a separate package
+- [x] Create domain package with models
+- [x] Create crypto package with hashers
+- [x] Add custom error types
+- [x] Improve Makefile
+- [x] Add .env.example
+
+## High Priority - Code Structure
+- [ ] Extract core blockchain package
+  - [ ] Move blockchain.go to internal/core/
+  - [ ] Create internal/core/validation.go
+  - [ ] Move UTXO tracker to internal/core/utxo.go
+- [ ] Create mining package
+  - [ ] Move mining.go to internal/mining/miner.go
+  - [ ] Extract POW logic to internal/mining/pow.go
+- [ ] Create service layer
+  - [ ] Create internal/service/blockchain_service.go
+  - [ ] Create internal/service/user_service.go
+- [ ] Refactor CLI commands
+  - [ ] Create internal/handler/cli/blockchain_commands.go
+  - [ ] Create internal/handler/cli/user_commands.go
+  - [ ] Create internal/handler/cli/mining_commands.go
+  - [ ] Break up 200+ line switch statement
+
+## Medium Priority - Features & Testing
+- [ ] Implement timestamp validation
+- [ ] Write comprehensive tests
+  - [ ] Add table-driven tests
+  - [ ] Move tests to _test packages
+  - [ ] Increase test coverage to >80%
+- [ ] Create better API endpoints
+  - [ ] Implement REST handlers in internal/handler/http/
+  - [ ] Hide transaction details in general endpoints
+  - [ ] Add middleware (logging, error handling)
+- [ ] Add proper documentation
+  - [ ] Package-level documentation for all packages
+  - [ ] Add examples to doc comments
+  - [ ] Create architecture decision records (ADRs)
+
+## Low Priority - Advanced Features
+- [ ] Implement storage layer
+  - [ ] Create storage interface
+  - [ ] Implement memory storage
+  - [ ] Add database support (BadgerDB/BoltDB)
+- [ ] Add proper cryptographic signing
+  - [ ] Implement actual signature verification
+  - [ ] Add key management
+- [ ] Performance improvements
+  - [ ] Add benchmarks
+  - [ ] Profile and optimize hot paths
+  - [ ] Optimize UTXO lookups with indexing
+- [ ] Add metrics and monitoring
+  - [ ] Prometheus metrics
+  - [ ] Health check endpoints
+  - [ ] Performance dashboards
+
+## Technical Debt
+- [ ] Remove getter/setter pattern from remaining code
+- [ ] Migrate all code to use domain package types
+- [ ] Add input validation throughout
+- [ ] Improve error messages with context
+- [ ] Add logging with structured logger (zerolog/zap)
+- [ ] Add configuration validation
+- [ ] Remove magic numbers, use constants
+
+## Documentation
+- [ ] Complete README with examples
+- [ ] Add API documentation (OpenAPI/Swagger)
+- [ ] Create architecture diagrams
+- [ ] Add contribution guidelines
+- [ ] Create deployment guide

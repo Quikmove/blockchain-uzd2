@@ -3,12 +3,12 @@ package blockchain
 import (
 	"math/rand"
 	"sort"
+
+	c "github.com/Quikmove/blockchain-uzd2/internal/crypto"
+	d "github.com/Quikmove/blockchain-uzd2/internal/domain"
 )
 
-// go through users and select a random amount between 100 and 1000 to get transferred as UTXOs in exponential sizes: 1, 2, 4, 8, 16, etc.
-// afterwards, construct the genesis block - that's the only block with coinbase-like transactions
-
-func GenerateFundTransactionsForUsers(users []User, low, high uint32) (Transactions, error) {
+func GenerateFundTransactionsForUsers(users []d.User, low, high uint32, hasher c.Hasher) (Transactions, error) {
 	var txs Transactions
 	for _, usr := range users {
 		var amount uint32
@@ -22,7 +22,7 @@ func GenerateFundTransactionsForUsers(users []User, low, high uint32) (Transacti
 				amount = low + uint32(rand.Intn(delta))
 			}
 		}
-		utxos := []uint32{}
+		var utxos []uint32
 		remaining := amount
 		size := uint32(1)
 		for remaining > 0 {
@@ -38,19 +38,21 @@ func GenerateFundTransactionsForUsers(users []User, low, high uint32) (Transacti
 		sort.Slice(utxos, func(i, j int) bool {
 			return utxos[i] < utxos[j]
 		})
-		var outputs []TxOutput
+		var outputs []d.TxOutput
 		for _, v := range utxos {
-			txOut := TxOutput{
+			txOut := d.TxOutput{
 				Value: v,
-				To:    usr.PublicKey,
+				To:    usr.PublicAddress,
 			}
 			outputs = append(outputs, txOut)
 		}
-		tx := Transaction{
+		tx := d.Transaction{
 			Inputs:  nil,
 			Outputs: outputs,
 		}
-		tx.TxID = tx.Hash()
+		hash := hasher.Hash(tx.Serialize())
+
+		tx.TxID = hash
 		txs = append(txs, tx)
 	}
 	return txs, nil
