@@ -8,3 +8,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/urfave/cli/v3 v3.5.0
 )
+
+require golang.org/x/crypto v0.44.0
+
+require github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
