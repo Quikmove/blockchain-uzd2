@@ -17,7 +17,7 @@ func TestAddBlock_InvalidMerkleRoot(t *testing.T) {
 		Inputs:  []d.TxInput{},
 		Outputs: []d.TxOutput{{Value: 100, To: users[0].PublicAddress}},
 	}
-	tx.TxID = hasher.Hash(tx.Serialize())
+	tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
 
 	body := d.Body{Transactions: []d.Transaction{tx}}
 
@@ -56,10 +56,11 @@ func TestAddBlock_InvalidPrevHash(t *testing.T) {
 		Outputs: []d.TxOutput{{Value: 50, To: users[1].PublicAddress}},
 	}
 
+	tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
+
 	hashToSign := SignatureHash(tx, utxo.Value, utxo.To[:], hasher)
 	sig := txSigner.SignTransaction(hashToSign[:], users[0].GetPrivateKeyObject())
 	tx.Inputs[0].Sig = sig[:]
-	tx.TxID = hasher.Hash(tx.Serialize())
 
 	body := d.Body{Transactions: []d.Transaction{tx}}
 	merkleRoot := MerkleRootHash(body, hasher)
@@ -99,10 +100,11 @@ func TestAddBlock_InvalidDifficulty(t *testing.T) {
 		Outputs: []d.TxOutput{{Value: 50, To: users[1].PublicAddress}},
 	}
 
+	tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
+
 	hashToSign := SignatureHash(tx, utxo.Value, utxo.To[:], hasher)
 	sig := txSigner.SignTransaction(hashToSign[:], users[0].GetPrivateKeyObject())
 	tx.Inputs[0].Sig = sig[:]
-	tx.TxID = hasher.Hash(tx.Serialize())
 
 	body := d.Body{Transactions: []d.Transaction{tx}}
 	merkleRoot := MerkleRootHash(body, hasher)
@@ -154,10 +156,11 @@ func TestAddBlock_ValidBlock(t *testing.T) {
 		Outputs: []d.TxOutput{{Value: outputValue, To: users[1].PublicAddress}},
 	}
 
+	tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
+
 	hashToSign := SignatureHash(tx, utxo.Value, utxo.To[:], hasher)
 	sig := txSigner.SignTransaction(hashToSign[:], users[0].GetPrivateKeyObject())
 	tx.Inputs[0].Sig = sig[:]
-	tx.TxID = hasher.Hash(tx.Serialize())
 
 	body := d.Body{Transactions: []d.Transaction{tx}}
 	merkleRoot := MerkleRootHash(body, hasher)
@@ -218,10 +221,11 @@ func TestBlockchain_ChainIntegrity(t *testing.T) {
 			Outputs: []d.TxOutput{{Value: outputValue, To: users[(i+1)%len(users)].PublicAddress}},
 		}
 
+		tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
+
 		hashToSign := SignatureHash(tx, utxo.Value, utxo.To[:], hasher)
 		sig := txSigner.SignTransaction(hashToSign[:], users[i%len(users)].GetPrivateKeyObject())
 		tx.Inputs[0].Sig = sig[:]
-		tx.TxID = hasher.Hash(tx.Serialize())
 
 		body := d.Body{Transactions: []d.Transaction{tx}}
 		block, err := bch.GenerateBlock(context.Background(), body, cfg.Version, cfg.Difficulty)

@@ -52,7 +52,7 @@ func TestValidateBlock_MerkleRootMismatch(t *testing.T) {
 		Inputs:  []d.TxInput{},
 		Outputs: []d.TxOutput{{Value: 100, To: users[0].PublicAddress}},
 	}
-	tx.TxID = hasher.Hash(tx.Serialize())
+	tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
 
 	body := d.Body{Transactions: []d.Transaction{tx}}
 	_ = MerkleRootHash(body, hasher) // Compute but don't use
@@ -117,7 +117,7 @@ func TestValidateBlock_TimestampTooFarInFuture(t *testing.T) {
 		Inputs:  []d.TxInput{},
 		Outputs: []d.TxOutput{{Value: 100, To: users[0].PublicAddress}},
 	}
-	tx.TxID = hasher.Hash(tx.Serialize())
+	tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
 
 	body := d.Body{Transactions: []d.Transaction{tx}}
 	merkleRoot := MerkleRootHash(body, hasher)
@@ -162,7 +162,7 @@ func TestValidateBlock_ValidGenesisBlock(t *testing.T) {
 		Inputs:  []d.TxInput{},
 		Outputs: []d.TxOutput{{Value: 100, To: users[0].PublicAddress}},
 	}
-	tx.TxID = hasher.Hash(tx.Serialize())
+	tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
 
 	body := d.Body{Transactions: []d.Transaction{tx}}
 	merkleRoot := MerkleRootHash(body, hasher)
@@ -201,18 +201,17 @@ func TestValidateBlockTransactions_DoubleSpend(t *testing.T) {
 	tx := d.Transaction{
 		Inputs: []d.TxInput{
 			{Prev: utxo.Outpoint},
-			{Prev: utxo.Outpoint}, // Same input twice
+			{Prev: utxo.Outpoint},
 		},
 		Outputs: []d.TxOutput{{Value: 50, To: users[1].PublicAddress}},
 	}
 
-	// Sign both inputs (even though it's a double spend)
+	tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
+
 	hashToSign := SignatureHash(tx, utxo.Value, utxo.To[:], hasher)
 	sig := txSigner.SignTransaction(hashToSign[:], users[0].GetPrivateKeyObject())
 	tx.Inputs[0].Sig = sig[:]
 	tx.Inputs[1].Sig = sig[:]
-
-	tx.TxID = hasher.Hash(tx.Serialize())
 
 	body := d.Body{Transactions: []d.Transaction{tx}}
 	merkleRoot := MerkleRootHash(body, hasher)
@@ -249,11 +248,12 @@ func TestValidateBlockTransactions_UTXONotFound(t *testing.T) {
 
 	tx := d.Transaction{
 		Inputs: []d.TxInput{
-			{Prev: fakeOutpoint, Sig: []byte{0x01, 0x02}},
+			{Prev: fakeOutpoint},
 		},
 		Outputs: []d.TxOutput{{Value: 50, To: users[1].PublicAddress}},
 	}
-	tx.TxID = hasher.Hash(tx.Serialize())
+	tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
+	tx.Inputs[0].Sig = []byte{0x01, 0x02}
 
 	body := d.Body{Transactions: []d.Transaction{tx}}
 	merkleRoot := MerkleRootHash(body, hasher)
@@ -290,17 +290,12 @@ func TestValidateBlockTransactions_InvalidSignature(t *testing.T) {
 
 	utxo := utxos[0]
 
-	// Create transaction with invalid signature (wrong private key)
-	input := d.TxInput{
-		Prev: utxo.Outpoint,
-		Sig:  []byte{0x01, 0x02, 0x03}, // Invalid signature
-	}
-
 	tx := d.Transaction{
-		Inputs:  []d.TxInput{input},
+		Inputs:  []d.TxInput{{Prev: utxo.Outpoint}},
 		Outputs: []d.TxOutput{{Value: 50, To: users[1].PublicAddress}},
 	}
-	tx.TxID = hasher.Hash(tx.Serialize())
+	tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
+	tx.Inputs[0].Sig = []byte{0x01, 0x02, 0x03}
 
 	body := d.Body{Transactions: []d.Transaction{tx}}
 	merkleRoot := MerkleRootHash(body, hasher)
@@ -345,19 +340,16 @@ func TestValidateBlockTransactions_ValidTransaction(t *testing.T) {
 		t.Fatalf("Test setup error: outputValue %d exceeds UTXO value %d", outputValue, utxo.Value)
 	}
 
-	// Create valid transaction
 	tx := d.Transaction{
 		Inputs:  []d.TxInput{{Prev: utxo.Outpoint}},
 		Outputs: []d.TxOutput{{Value: outputValue, To: users[1].PublicAddress}},
 	}
 
-	// Sign the transaction
+	tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
+
 	hashToSign := SignatureHash(tx, utxo.Value, utxo.To[:], hasher)
 	sig := txSigner.SignTransaction(hashToSign[:], users[0].GetPrivateKeyObject())
 	tx.Inputs[0].Sig = sig[:]
-
-	// Set transaction ID
-	tx.TxID = hasher.Hash(tx.Serialize())
 
 	body := d.Body{Transactions: []d.Transaction{tx}}
 	merkleRoot := MerkleRootHash(body, hasher)
@@ -392,19 +384,18 @@ func TestValidateBlockTransactions_OutputsExceedInputs(t *testing.T) {
 
 	utxo := utxos[0]
 
-	// Create transaction where outputs exceed inputs
 	tx := d.Transaction{
 		Inputs: []d.TxInput{{Prev: utxo.Outpoint}},
 		Outputs: []d.TxOutput{
-			{Value: utxo.Value + 1000, To: users[1].PublicAddress}, // More than input
+			{Value: utxo.Value + 1000, To: users[1].PublicAddress},
 		},
 	}
+
+	tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
 
 	hashToSign := SignatureHash(tx, utxo.Value, utxo.To[:], hasher)
 	sig := txSigner.SignTransaction(hashToSign[:], users[0].GetPrivateKeyObject())
 	tx.Inputs[0].Sig = sig[:]
-
-	tx.TxID = hasher.Hash(tx.Serialize())
 
 	body := d.Body{Transactions: []d.Transaction{tx}}
 	merkleRoot := MerkleRootHash(body, hasher)
@@ -441,15 +432,15 @@ func TestValidateBlockTransactions_ZeroValueOutput(t *testing.T) {
 	tx := d.Transaction{
 		Inputs: []d.TxInput{{Prev: utxo.Outpoint}},
 		Outputs: []d.TxOutput{
-			{Value: 0, To: users[1].PublicAddress}, // Zero value
+			{Value: 0, To: users[1].PublicAddress},
 		},
 	}
+
+	tx.TxID = hasher.Hash(tx.SerializeWithoutSignatures())
 
 	hashToSign := SignatureHash(tx, utxo.Value, utxo.To[:], hasher)
 	sig := txSigner.SignTransaction(hashToSign[:], users[0].GetPrivateKeyObject())
 	tx.Inputs[0].Sig = sig[:]
-
-	tx.TxID = hasher.Hash(tx.Serialize())
 
 	body := d.Body{Transactions: []d.Transaction{tx}}
 	merkleRoot := MerkleRootHash(body, hasher)

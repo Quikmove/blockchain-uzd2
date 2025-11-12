@@ -37,7 +37,12 @@ func merkleRootHash(t Transactions, hasher c.Hasher) d.Hash32 {
 	}
 	hashes := make([]d.Hash32, 0, len(t))
 	for _, tx := range t {
-		h := hasher.Hash(tx.Serialize())
+		var h d.Hash32
+		if !tx.TxID.IsZero() {
+			h = tx.TxID
+		} else {
+			h = hasher.Hash(tx.SerializeWithoutSignatures())
+		}
 		var mh d.Hash32
 		copy(mh[:], h[:])
 		hashes = append(hashes, mh)

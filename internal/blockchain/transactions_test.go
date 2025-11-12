@@ -60,14 +60,12 @@ func TestTransaction_TxID(t *testing.T) {
 		},
 	}
 
-	// Calculate expected TxID
-	expectedTxID := hasher.Hash(tx.Serialize())
+	expectedTxID := hasher.Hash(tx.SerializeWithoutSignatures())
 	tx.TxID = expectedTxID
 
-	// Verify TxID matches
-	actualTxID := hasher.Hash(tx.Serialize())
+	actualTxID := hasher.Hash(tx.SerializeWithoutSignatures())
 	if tx.TxID != actualTxID {
-		t.Error("Transaction TxID should match hash of serialized transaction")
+		t.Error("Transaction TxID should match hash of serialized transaction without signatures")
 	}
 }
 
@@ -127,12 +125,11 @@ func TestMerkleRootHash(t *testing.T) {
 		t.Error("Merkle root for empty transactions should be zero")
 	}
 
-	// Single transaction
 	tx1 := d.Transaction{
 		Inputs:  []d.TxInput{},
 		Outputs: []d.TxOutput{{Value: 100, To: d.PublicAddress{0x01}}},
 	}
-	tx1.TxID = hasher.Hash(tx1.Serialize())
+	tx1.TxID = hasher.Hash(tx1.SerializeWithoutSignatures())
 
 	body1 := d.Body{Transactions: []d.Transaction{tx1}}
 	root2 := MerkleRootHash(body1, hasher)
@@ -140,12 +137,11 @@ func TestMerkleRootHash(t *testing.T) {
 		t.Error("Merkle root for single transaction should not be zero")
 	}
 
-	// Multiple transactions
 	tx2 := d.Transaction{
 		Inputs:  []d.TxInput{},
 		Outputs: []d.TxOutput{{Value: 200, To: d.PublicAddress{0x02}}},
 	}
-	tx2.TxID = hasher.Hash(tx2.Serialize())
+	tx2.TxID = hasher.Hash(tx2.SerializeWithoutSignatures())
 
 	body2 := d.Body{Transactions: []d.Transaction{tx1, tx2}}
 	root3 := MerkleRootHash(body2, hasher)
@@ -250,16 +246,15 @@ func TestTransaction_SerializationRoundTrip(t *testing.T) {
 		},
 	}
 
-	// Set TxID
-	originalTx.TxID = hasher.Hash(originalTx.Serialize())
+	originalTx.TxID = hasher.Hash(originalTx.SerializeWithoutSignatures())
 
-	// Serialize and verify TxID still matches
-	serialized := originalTx.Serialize()
-	expectedTxID := hasher.Hash(serialized)
+	expectedTxID := hasher.Hash(originalTx.SerializeWithoutSignatures())
 
 	if originalTx.TxID != expectedTxID {
-		t.Error("Transaction TxID should match hash of serialized form")
+		t.Error("Transaction TxID should match hash of serialized form without signatures")
 	}
+
+	serialized := originalTx.Serialize()
 
 	// Verify serialization includes all data
 	if len(serialized) < 50 { // Minimum expected size
