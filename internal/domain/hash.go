@@ -8,24 +8,7 @@ import (
 type Hash32 [32]byte
 
 func (h *Hash32) String() string {
-	return h.StringBE()
-}
-
-func (h *Hash32) StringBE() string {
-	reversed := h.Reverse()
-	return hex.EncodeToString(reversed[:])
-}
-
-func (h *Hash32) StringLE() string {
 	return hex.EncodeToString(h[:])
-}
-
-func (h *Hash32) Reverse() Hash32 {
-	var reversed Hash32
-	for i := range 32 {
-		reversed[i] = h[31-i]
-	}
-	return reversed
 }
 
 func (h Hash32) MarshalJSON() ([]byte, error) {
@@ -44,9 +27,7 @@ func (h *Hash32) UnmarshalJSON(data []byte) error {
 	if len(decoded) != 32 {
 		return ErrInvalidHashLength
 	}
-	for i := 0; i < 32; i++ {
-		h[i] = decoded[31-i]
-	}
+	copy(h[:], decoded)
 	return nil
 }
 
