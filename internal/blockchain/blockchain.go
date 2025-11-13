@@ -45,7 +45,7 @@ func (bch *Blockchain) GetBlock(index int) (d.Block, error) {
 	bch.chainMutex.RLock()
 	defer bch.chainMutex.RUnlock()
 	if index < 0 || index >= len(bch.blocks) {
-		return d.Block{}, errors.New("block index out of range")
+		return d.Block{}, d.ErrBlockIndexOutOfRange
 	}
 	return bch.blocks[index], nil
 }
@@ -53,7 +53,7 @@ func (bch *Blockchain) GetLatestBlock() (d.Block, error) {
 	bch.chainMutex.RLock()
 	defer bch.chainMutex.RUnlock()
 	if len(bch.blocks) == 0 {
-		return d.Block{}, errors.New("blockchain is empty")
+		return d.Block{}, d.ErrEmptyBlockchain
 	}
 	return bch.blocks[len(bch.blocks)-1], nil
 }
@@ -77,11 +77,11 @@ func (bch *Blockchain) AddBlock(b d.Block) error {
 		tipHash := bch.CalculateHash(tip)
 		header := b.Header
 		if tipHash != header.PrevHash {
-			return errors.New("new block's prev hash does not match tip hash")
+			return d.ErrInvalidPrevHash
 		}
 		hash := bch.CalculateHash(b)
 		if !IsHashValid(hash, header.Difficulty) {
-			return errors.New("new block hash does not meet difficulty requirements")
+			return d.ErrInvalidDifficulty
 		}
 	}
 
@@ -183,9 +183,6 @@ func HashString(str string, hasher c.Hasher) (d.Hash32, error) {
 }
 
 func (bch *Blockchain) CalculateHash(block d.Block) d.Hash32 {
-	if block.Header.Nonce == 0 {
-		return d.Hash32{}
-	}
 	if block.Header.PrevHash.IsZero() && block.Header.MerkleRoot.IsZero() {
 		return d.Hash32{}
 	}
@@ -250,13 +247,13 @@ func (bch *Blockchain) ValidateBlock(b d.Block) error {
 	body := b.Body
 	txs := body.Transactions
 	if len(txs) == 0 {
-		return errors.New("block has no transactions")
+		return d.ErrInvalidBlock
 	}
 
 	// Validate merkle root
 	computedMerkleRoot := MerkleRootHash(body, bch.hasher)
 	if computedMerkleRoot != b.Header.MerkleRoot {
-		return fmt.Errorf("merkle root mismatch: computed %x, expected %x", computedMerkleRoot, b.Header.MerkleRoot)
+		return d.ErrInvalidMerkleRoot
 	}
 
 	// Validate block hash meets difficulty (for non-genesis blocks)
@@ -271,34 +268,34 @@ func (bch *Blockchain) ValidateBlock(b d.Block) error {
 	maxFutureTime := currentTime + 7200
 	minPastTime := currentTime - 7200
 	if b.Header.Timestamp > maxFutureTime {
-		return fmt.Errorf("block timestamp too far in future: %d > %d", b.Header.Timestamp, maxFutureTime)
+		return errors.New("block timestamp too far in future")
 	}
 	if !isGenesis && b.Header.Timestamp < minPastTime {
-		return fmt.Errorf("block timestamp too far in past: %d < %d (possible replay attack)", b.Header.Timestamp, minPastTime)
+		return errors.New("block timestamp too far in past")
 	}
 
 	for i, tx := range txs {
 		expectedTxID := bch.hasher.Hash(tx.SerializeWithoutSignatures())
 		if tx.TxID != expectedTxID {
-			return fmt.Errorf("transaction %d: TxID mismatch, expected %x, got %x", i, expectedTxID, tx.TxID)
+			return d.ErrInvalidTransaction
 		}
 
 		isCoinbase := len(tx.Inputs) == 0
 		if isGenesis {
 			if !isCoinbase {
-				return fmt.Errorf("genesis tx %d must be coinbase-like", i)
+				return d.ErrInvalidTransaction
 			}
 			continue
 		}
 		if isCoinbase {
 			if i != 0 {
-				return fmt.Errorf("coinbase tx only allowed as first tx (found at index %d)", i)
+				return d.ErrInvalidTransaction
 			}
 			continue
 		}
 
 		if len(tx.Inputs) == 0 {
-			return fmt.Errorf("non-coinbase tx has no inputs (index %d)", i)
+			return d.ErrInvalidTransaction
 		}
 	}
 
@@ -315,7 +312,7 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block, users []d.User) erro
 	body := b.Body
 	txs := body.Transactions
 	if len(txs) == 0 {
-		return errors.New("block has no transactions")
+		return d.ErrInvalidBlock
 	}
 
 	spentInBlock := make(map[d.Outpoint]bool)
@@ -329,27 +326,27 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block, users []d.User) erro
 		isCoinbase := len(tx.Inputs) == 0
 
 		if isGenesis && !isCoinbase {
-			return fmt.Errorf("genesis tx %d must be coinbase-like", i)
+			return d.ErrInvalidTransaction
 		}
 
 		if isCoinbase {
 			if i != 0 {
-				return fmt.Errorf("coinbase tx only allowed as first tx (found at index %d)", i)
+				return d.ErrInvalidTransaction
 			}
 			if len(tx.Outputs) == 0 {
 				return d.ErrInvalidTransaction
 			}
 			var coinbaseTotal uint32
-			for outputIdx, output := range tx.Outputs {
+			for _, output := range tx.Outputs {
 				if output.Value == 0 {
-					return fmt.Errorf("coinbase tx output %d: zero-value output not allowed", outputIdx)
+					return d.ErrInvalidTransaction
 				}
 				const maxCoinbaseReward uint32 = 1000000
 				if output.Value > maxCoinbaseReward {
-					return fmt.Errorf("coinbase tx output %d: reward exceeds maximum (%d > %d)", outputIdx, output.Value, maxCoinbaseReward)
+					return errors.New("coinbase tx reward exceeds maximum")
 				}
 				if coinbaseTotal > ^uint32(0)-output.Value {
-					return fmt.Errorf("coinbase tx: total reward overflow")
+					return errors.New("coinbase tx total reward overflow")
 				}
 				coinbaseTotal += output.Value
 			}
@@ -361,11 +358,11 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block, users []d.User) erro
 		}
 
 		if len(tx.Outputs) == 0 {
-			return fmt.Errorf("tx %d has no outputs", i)
+			return d.ErrEmptyTransaction
 		}
 
 		var inputSum uint32
-		for inputIdx, input := range tx.Inputs {
+		for _, input := range tx.Inputs {
 			if spentInBlock[input.Prev] {
 				return d.ErrDoubleSpend
 			}
@@ -382,7 +379,7 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block, users []d.User) erro
 
 			if !isGenesis {
 				if len(input.Sig) == 0 {
-					return fmt.Errorf("tx %d input %d: missing signature (required for non-genesis transactions)", i, inputIdx)
+					return errors.New("missing signature for non-genesis transaction")
 				}
 
 				publicKey, hasKey := addressToPublicKey[utxo.To]
@@ -397,23 +394,23 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block, users []d.User) erro
 				}
 
 				if !hasKey {
-					return fmt.Errorf("tx %d input %d: public key not found for address (signature cannot be verified)", i, inputIdx)
+					return errors.New("public key not found for address")
 				}
 
 				expectedAddress := c.GenerateAddress(publicKey[:])
 				if utxo.To != expectedAddress {
-					return fmt.Errorf("tx %d input %d: address does not match public key (address verification failed)", i, inputIdx)
+					return errors.New("address does not match public key")
 				}
 
 				hashToVerify := SignatureHash(tx, utxo.Value, utxo.To[:], bch.hasher)
 
 				publicKeyObj, err := secp256k1.ParsePubKey(publicKey[:])
 				if err != nil {
-					return fmt.Errorf("tx %d input %d: invalid public key: %w", i, inputIdx, err)
+					return d.ErrInvalidPublicKey
 				}
 
 				if !bch.txSigner.VerifySignature(hashToVerify[:], input.Sig, publicKeyObj) {
-					return fmt.Errorf("tx %d input %d: invalid signature", i, inputIdx)
+					return d.ErrInvalidSignature
 				}
 			}
 
@@ -421,19 +418,19 @@ func (bch *Blockchain) ValidateBlockTransactions(b d.Block, users []d.User) erro
 		}
 
 		var outputSum uint32
-		for outputIdx, output := range tx.Outputs {
+		for _, output := range tx.Outputs {
 			if output.Value == 0 {
-				return fmt.Errorf("tx %d output %d: zero-value output not allowed", i, outputIdx)
+				return errors.New("zero-value output not allowed")
 			}
 
 			if outputSum > ^uint32(0)-output.Value {
-				return fmt.Errorf("tx %d: output sum overflow", i)
+				return errors.New("output sum overflow")
 			}
 			outputSum += output.Value
 		}
 
 		if inputSum < outputSum {
-			return fmt.Errorf("tx %d: outputs (%d) exceed inputs (%d)", i, outputSum, inputSum)
+			return d.ErrInsufficientFunds
 		}
 	}
 
@@ -536,7 +533,7 @@ func (bch *Blockchain) GenerateRandomTransactions(users []d.User, low, high, n i
 	}
 
 	if len(generatedTxs) == 0 {
-		return nil, errors.New("could not generate any valid transactions, users may not have sufficient funds")
+		return nil, d.ErrInsufficientFunds
 	}
 
 	return generatedTxs, nil
@@ -572,7 +569,7 @@ func (bch *Blockchain) GetBlockByIndex(index int) (d.Block, error) {
 	bch.chainMutex.RLock()
 	defer bch.chainMutex.RUnlock()
 	if index < 0 || index >= len(bch.blocks) {
-		return d.Block{}, errors.New("block index out of range")
+		return d.Block{}, d.ErrBlockIndexOutOfRange
 	}
 	return bch.blocks[index], nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -19,31 +20,28 @@ import (
 )
 
 func validateBlockIndex(index int, maxHeight int) error {
-	if index < 0 {
-		return fmt.Errorf("block index must be non-negative, got %d", index)
-	}
-	if index >= maxHeight {
-		return fmt.Errorf("block index %d is out of range (max: %d)", index, maxHeight-1)
+	if index < 0 || index >= maxHeight {
+		return domain.ErrBlockIndexOutOfRange
 	}
 	return nil
 }
 
 func validatePositiveInt(value int, fieldName string) error {
 	if value <= 0 {
-		return fmt.Errorf("%s must be positive, got %d", fieldName, value)
+		return errors.New("value must be positive")
 	}
 	return nil
 }
 
 func validateTransactionValueRange(min, max int) error {
 	if min < 0 {
-		return fmt.Errorf("minimum transaction value must be non-negative, got %d", min)
+		return errors.New("minimum transaction value must be non-negative")
 	}
 	if max < 0 {
-		return fmt.Errorf("maximum transaction value must be non-negative, got %d", max)
+		return errors.New("maximum transaction value must be non-negative")
 	}
 	if min > max {
-		return fmt.Errorf("minimum transaction value (%d) cannot exceed maximum (%d)", min, max)
+		return errors.New("minimum transaction value cannot exceed maximum")
 	}
 	return nil
 }
