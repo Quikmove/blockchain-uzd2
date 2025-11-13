@@ -194,22 +194,29 @@ func IsHashValid(hash d.Hash32, diff uint32) bool {
 	}
 
 	bits := diff * 4
-	if bits > 8*uint32(len(hash)) {
+	hashLen := len(hash)
+	maxBits := uint32(hashLen) * 8
+	if bits > maxBits {
 		return false
 	}
 	fullBytes := bits / 8
 	remBits := bits % 8
-	var zero [32]byte
+
 	if fullBytes > 0 {
-		startIdx := 32 - int(fullBytes)
-		if !bytes.Equal(hash[startIdx:], zero[:fullBytes]) {
+		var zero [32]byte
+		if !bytes.Equal(hash[:fullBytes], zero[:fullBytes]) {
 			return false
 		}
 	}
+
 	if remBits == 0 {
 		return true
 	}
-	byteIdx := 32 - int(fullBytes) - 1
+
+	byteIdx := int(fullBytes)
+	if byteIdx >= hashLen {
+		return false
+	}
 	mask := byte(0xFF << (8 - remBits))
 	return (hash[byteIdx] & mask) == 0
 }
