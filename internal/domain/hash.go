@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 )
 
 // Hash32 represents a 32-byte hash value used throughout the blockchain.
@@ -41,8 +42,8 @@ func (h *Hash32) Reverse() Hash32 {
 
 // MarshalJSON implements json.Marshaler.
 // Hashes are marshaled as little-endian hex strings (reversed) following blockchain convention.
-func (h *Hash32) MarshalJSON() ([]byte, error) {
-	return json.Marshal(h.StringLE())
+func (h Hash32) MarshalJSON() ([]byte, error) {
+	return json.Marshal(fmt.Sprintf("%x", (&h).Reverse()))
 }
 
 // UnmarshalJSON implements json.Unmarshaler.

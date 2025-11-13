@@ -109,6 +109,88 @@ func TestHash32JSON(t *testing.T) {
 	}
 }
 
+func TestHash32JSONInStruct(t *testing.T) {
+	// Test marshalling Hash32 as a value field in a struct (like Header.PrevHash)
+	prevHash := Hash32{
+		0x00, 0x00, 0x00, 0x12, // Leading zeros
+		0x34, 0x56, 0x78, 0x9a,
+		0xbc, 0xde, 0xf0, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0xff,
+	}
+
+	merkleRoot := Hash32{
+		0x01, 0x02, 0x03, 0x04,
+		0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0a, 0x0b, 0x0c,
+		0x0d, 0x0e, 0x0f, 0x10,
+		0x11, 0x12, 0x13, 0x14,
+		0x15, 0x16, 0x17, 0x18,
+		0x19, 0x1a, 0x1b, 0x1c,
+		0x1d, 0x1e, 0x1f, 0x20,
+	}
+
+	header := Header{
+		Version:    1,
+		Timestamp:  1234567890,
+		PrevHash:   prevHash,
+		MerkleRoot: merkleRoot,
+		Difficulty: 4,
+		Nonce:      42,
+	}
+
+	// Marshal the struct containing Hash32 value fields
+	data, err := json.Marshal(header)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	// Unmarshal to verify the structure
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	// Verify prev_hash is marshalled as a hex string (not an array)
+	prevHashStr, ok := result["prev_hash"].(string)
+	if !ok {
+		t.Fatalf("prev_hash should be a string, got %T: %v", result["prev_hash"], result["prev_hash"])
+	}
+
+	// Verify it matches the little-endian representation
+	if prevHashStr != prevHash.StringLE() {
+		t.Errorf("prev_hash marshaled as %s, want %s (little-endian)", prevHashStr, prevHash.StringLE())
+	}
+
+	// Verify merkle_root is also marshalled as a hex string
+	merkleRootStr, ok := result["merkle_root"].(string)
+	if !ok {
+		t.Fatalf("merkle_root should be a string, got %T: %v", result["merkle_root"], result["merkle_root"])
+	}
+
+	if merkleRootStr != merkleRoot.StringLE() {
+		t.Errorf("merkle_root marshaled as %s, want %s (little-endian)", merkleRootStr, merkleRoot.StringLE())
+	}
+
+	// Unmarshal back to Header to verify round-trip
+	var header2 Header
+	if err := json.Unmarshal(data, &header2); err != nil {
+		t.Fatalf("json.Unmarshal() to Header error = %v", err)
+	}
+
+	// Verify the hashes match
+	if !prevHash.Equals(&header2.PrevHash) {
+		t.Errorf("Unmarshaled prev_hash = %v, want %v", header2.PrevHash, prevHash)
+	}
+
+	if !merkleRoot.Equals(&header2.MerkleRoot) {
+		t.Errorf("Unmarshaled merkle_root = %v, want %v", header2.MerkleRoot, merkleRoot)
+	}
+}
+
 func TestHash32LeadingZeros(t *testing.T) {
 	// Simulate a valid PoW hash with leading zeros
 	h := Hash32{
