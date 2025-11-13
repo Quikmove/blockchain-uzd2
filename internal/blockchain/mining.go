@@ -198,17 +198,17 @@ func (bch *Blockchain) MineBlocksDecentralized(
 	}
 
 	for round := 0; round < config.BlockCount; round++ {
-		if parentCtx.Err() != nil {
-			return parentCtx.Err()
+		if err := parentCtx.Err(); err != nil {
+			return err
 		}
 
 		timeLimit := config.InitialTimeLimit
 		attemptLimit := config.InitialAttemptLimit
-		var miningSuccess bool
+		miningSuccess := false
 
 		for !miningSuccess {
-			if parentCtx.Err() != nil {
-				return parentCtx.Err()
+			if err := parentCtx.Err(); err != nil {
+				return err
 			}
 
 			candidateBlocks := make([]d.Body, 0, config.CandidateCount)
@@ -235,16 +235,12 @@ func (bch *Blockchain) MineBlocksDecentralized(
 			}
 
 			roundCtx, cancelRound := context.WithCancel(parentCtx)
-			defer cancelRound()
-
-			var timeoutCtx context.Context
+			timeoutCtx := roundCtx
 			var timeoutCancel context.CancelFunc
+
 			if timeLimit > 0 {
 				timeoutCtx, timeoutCancel = context.WithTimeout(roundCtx, timeLimit)
-			} else {
-				timeoutCtx, timeoutCancel = context.WithCancel(roundCtx)
 			}
-			defer timeoutCancel()
 
 			blockChan := make(chan d.Block, 1)
 			var wg sync.WaitGroup
@@ -271,6 +267,8 @@ func (bch *Blockchain) MineBlocksDecentralized(
 
 					for {
 						select {
+						case <-roundCtx.Done():
+							return
 						case <-timeoutCtx.Done():
 							return
 						default:
@@ -283,12 +281,22 @@ func (bch *Blockchain) MineBlocksDecentralized(
 						newHeader.Nonce = nonce
 						hash := bch.hasher.Hash(newHeader.Serialize())
 						if IsHashValid(hash, config.Difficulty) {
+							currentLatestBlock, err := bch.GetLatestBlock()
+							if err != nil {
+								return
+							}
+							currentLatestHash := bch.CalculateHash(currentLatestBlock)
+
+							if currentLatestHash != newHeader.PrevHash {
+								return
+							}
+
 							newBlock := d.Block{
 								Header: newHeader,
 								Body:   candidateBody,
 							}
 
-							err := bch.AddBlock(newBlock)
+							err = bch.AddBlock(newBlock)
 							if err != nil {
 								return
 							}
@@ -312,22 +320,34 @@ func (bch *Blockchain) MineBlocksDecentralized(
 
 			select {
 			case blk := <-blockChan:
-				miningSuccess = true
+				cancelRound()
+				if timeoutCancel != nil {
+					timeoutCancel()
+				}
+				wg.Wait()
+
 				blockIndex := bch.Len() - 1
 				blockTxs := blk.Body.Transactions
 				log.Printf("Round %d: Successfully mined block at index %d (block #%d) with %d transactions and nonce %d\n",
 					round+1, blockIndex, round+1, len(blockTxs), blk.Header.Nonce)
+				miningSuccess = true
 			case <-timeoutCtx.Done():
-				if !miningSuccess {
-					timeLimit = time.Duration(float64(timeLimit) * config.TimeMultiplier)
-					log.Printf("Round %d: No block mined within time limit, retrying with increased time limit: %v", round+1, timeLimit)
+				cancelRound()
+				if timeoutCancel != nil {
+					timeoutCancel()
 				}
+				wg.Wait()
+
+				timeLimit = time.Duration(float64(timeLimit) * config.TimeMultiplier)
+				log.Printf("Round %d: No block mined within time limit, retrying with increased time limit: %v", round+1, timeLimit)
 			case <-parentCtx.Done():
+				cancelRound()
+				if timeoutCancel != nil {
+					timeoutCancel()
+				}
 				wg.Wait()
 				return parentCtx.Err()
 			}
-
-			wg.Wait()
 		}
 	}
 
