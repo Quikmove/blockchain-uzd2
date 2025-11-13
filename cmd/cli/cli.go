@@ -46,6 +46,199 @@ func validateTransactionValueRange(min, max int) error {
 	return nil
 }
 
+func readInt(prompt string, validator func(int) error) (int, error) {
+	fmt.Println(prompt)
+	var value int
+	_, err := fmt.Scanln(&value)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read number, try again: %w", err)
+	}
+	if validator != nil {
+		if err := validator(value); err != nil {
+			return 0, err
+		}
+	}
+	return value, nil
+}
+
+func readIntWithDefault(prompt string, defaultValue int, validator func(int) error) (int, error) {
+	fmt.Println(prompt)
+	var value int
+	_, err := fmt.Scanln(&value)
+	if err != nil {
+		return defaultValue, nil
+	}
+	if validator != nil {
+		if err := validator(value); err != nil {
+			return defaultValue, nil
+		}
+	}
+	return value, nil
+}
+
+func readString(prompt string) (string, error) {
+	fmt.Println(prompt)
+	var value string
+	_, err := fmt.Scanln(&value)
+	if err != nil {
+		return "", fmt.Errorf("failed to read input, try again: %w", err)
+	}
+	return value, nil
+}
+
+func readCommand() (string, error) {
+	fmt.Print("\nEnter command: ")
+	var command string
+	_, err := fmt.Scanln(&command)
+	if err != nil {
+		return "", fmt.Errorf("failed to read command, try again: %w", err)
+	}
+	return command, nil
+}
+
+func getBlockByIndex(bch *blockchain.Blockchain, prompt string) (domain.Block, int, error) {
+	index, err := readInt(prompt, func(idx int) error {
+		maxHeight := bch.Len()
+		return validateBlockIndex(idx, maxHeight)
+	})
+	if err != nil {
+		return domain.Block{}, 0, err
+	}
+	block, err := bch.GetBlockByIndex(index)
+	if err != nil {
+		return domain.Block{}, 0, fmt.Errorf("error retrieving block: %w", err)
+	}
+	return block, index, nil
+}
+
+func marshalJSON(data interface{}, fallback func()) ([]byte, error) {
+	bytes, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		if fallback != nil {
+			fallback()
+		}
+		return nil, err
+	}
+	return bytes, nil
+}
+
+func findUserByInput(input string, users []domain.User) (user domain.User, address domain.PublicAddress, found bool, err error) {
+	for i := range users {
+		if users[i].Name == input {
+			return users[i], users[i].PublicAddress, true, nil
+		}
+	}
+
+	hexBytes, err := hex.DecodeString(input)
+	if err != nil {
+		return domain.User{}, domain.PublicAddress{}, false, fmt.Errorf("input is neither a valid user name nor a valid hex string")
+	}
+
+	if len(hexBytes) == 20 {
+		var addr domain.PublicAddress
+		copy(addr[:], hexBytes)
+		for i := range users {
+			if users[i].PublicAddress == addr {
+				return users[i], addr, true, nil
+			}
+		}
+		return domain.User{}, addr, false, nil
+	} else if len(hexBytes) == 33 {
+		var pubKey domain.PublicKey
+		copy(pubKey[:], hexBytes)
+		for i := range users {
+			if users[i].PublicKey == pubKey {
+				return users[i], users[i].PublicAddress, true, nil
+			}
+		}
+		return domain.User{}, domain.PublicAddress{}, false, fmt.Errorf("no user found with that public key")
+	}
+
+	return domain.User{}, domain.PublicAddress{}, false, fmt.Errorf("hex input must be either 40 characters (public address) or 66 characters (public key)")
+}
+
+func printMenu() {
+	fmt.Println("╔═══════════════════════════════════════════════════════════════════════╗")
+	fmt.Println("║                    BLOCKCHAIN CLI - AVAILABLE COMMANDS                ║")
+	fmt.Println("╠═══════════════════════════════════════════════════════════════════════╣")
+	fmt.Println("║ MINING:                                                               ║")
+	fmt.Println("║   mineblocks          - Mine new blocks with random transactions      ║")
+	fmt.Println("║   simulatedecentralizedmining - Simulate decentralized mining         ║")
+	fmt.Println("║                                                                       ║")
+	fmt.Println("║ BLOCKCHAIN INFO:                                                      ║")
+	fmt.Println("║   height              - Show current blockchain height                ║")
+	fmt.Println("║   stats               - Show blockchain statistics                    ║")
+	fmt.Println("║   validatechain       - Validate entire blockchain integrity          ║")
+	fmt.Println("║                                                                       ║")
+	fmt.Println("║ BLOCK QUERIES:                                                        ║")
+	fmt.Println("║   getblock            - Get full block details by index               ║")
+	fmt.Println("║   getblockheader      - Get block header by index                     ║")
+	fmt.Println("║   getblockhash        - Get block hash by index                       ║")
+	fmt.Println("║   getblocktransactions- Get block transactions by index               ║")
+	fmt.Println("║   getallheaders       - Get all block headers                         ║")
+	fmt.Println("║                                                                       ║")
+	fmt.Println("║ USER & BALANCE:                                                       ║")
+	fmt.Println("║   balance             - Show all user balances (table)                ║")
+	fmt.Println("║   getuserbalance      - Get balance by name, public key, or address   ║")
+	fmt.Println("║   richlist            - Show top users by balance                     ║")
+	fmt.Println("║   getutxos            - Get UTXOs by name, public key, or address     ║")
+	fmt.Println("║                                                                       ║")
+	fmt.Println("║ OTHER:                                                                ║")
+	fmt.Println("║   help                - Show detailed help                            ║")
+	fmt.Println("║   exit                - Exit the program                              ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════════════════╝")
+}
+
+func calculateStats(bch *blockchain.Blockchain, users []domain.User, cfg *config.Config) (totalBlocks, totalTxs, totalUsers int, avgTxPerBlock float64, version, difficulty uint32) {
+	blocks := bch.Blocks()
+	totalBlocks = len(blocks)
+	totalUsers = len(users)
+	version = cfg.Version
+	difficulty = cfg.Difficulty
+
+	for _, block := range blocks {
+		totalTxs += len(block.Body.Transactions)
+	}
+
+	if totalBlocks > 0 {
+		avgTxPerBlock = float64(totalTxs) / float64(totalBlocks)
+	}
+
+	return
+}
+
+func validateChain(bch *blockchain.Blockchain) bool {
+	fmt.Println("Validating blockchain...")
+	valid := true
+	blocks := bch.Blocks()
+	for i := 1; i < len(blocks); i++ {
+		prevBlock := blocks[i-1]
+		currentBlock := blocks[i]
+
+		prevHash := bch.CalculateHash(prevBlock)
+		currentHeader := currentBlock.Header
+
+		if prevHash != currentHeader.PrevHash {
+			fmt.Printf("❌ Block %d: Previous hash mismatch!\n", i)
+			valid = false
+		}
+
+		currentHash := bch.CalculateHash(currentBlock)
+		if !blockchain.IsHashValid(currentHash, currentHeader.Difficulty) {
+			fmt.Printf("❌ Block %d: Hash doesn't meet difficulty requirements!\n", i)
+			valid = false
+		}
+	}
+
+	if valid {
+		fmt.Println("✅ Blockchain is valid!")
+	} else {
+		fmt.Println("❌ Blockchain validation failed!")
+	}
+
+	return valid
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -77,9 +270,6 @@ func main() {
 					log.Println("Found a POW hash successfully with nonce:", genesisHeader.Nonce)
 					log.Println("Added genesis block successfully")
 
-					if err != nil {
-						log.Println(err)
-					}
 					txsSize := 100
 					config := blockchain.DefaultDecentralizedMiningConfig()
 					config.BlockCount = 5
@@ -93,64 +283,23 @@ func main() {
 						log.Println("Error mining initial blocks:", err)
 					}
 					for {
-						fmt.Println("╔═══════════════════════════════════════════════════════════════════════╗")
-						fmt.Println("║                    BLOCKCHAIN CLI - AVAILABLE COMMANDS                ║")
-						fmt.Println("╠═══════════════════════════════════════════════════════════════════════╣")
-						fmt.Println("║ MINING:                                                               ║")
-						fmt.Println("║   mineblocks          - Mine new blocks with random transactions      ║")
-						fmt.Println("║   simulatedecentralizedmining - Simulate decentralized mining         ║")
-						fmt.Println("║                                                                       ║")
-						fmt.Println("║ BLOCKCHAIN INFO:                                                      ║")
-						fmt.Println("║   height              - Show current blockchain height                ║")
-						fmt.Println("║   stats               - Show blockchain statistics                    ║")
-						fmt.Println("║   validatechain       - Validate entire blockchain integrity          ║")
-						fmt.Println("║                                                                       ║")
-						fmt.Println("║ BLOCK QUERIES:                                                        ║")
-						fmt.Println("║   getblock            - Get full block details by index               ║")
-						fmt.Println("║   getblockheader      - Get block header by index                     ║")
-						fmt.Println("║   getblockhash        - Get block hash by index                       ║")
-						fmt.Println("║   getblocktransactions- Get block transactions by index               ║")
-						fmt.Println("║   getallheaders       - Get all block headers                         ║")
-						fmt.Println("║                                                                       ║")
-						fmt.Println("║ USER & BALANCE:                                                       ║")
-						fmt.Println("║   balance             - Show all user balances (table)                ║")
-						fmt.Println("║   getuserbalance      - Get balance by name, public key, or address   ║")
-						fmt.Println("║   richlist            - Show top users by balance                     ║")
-						fmt.Println("║   getutxos            - Get UTXOs by name, public key, or address     ║")
-						fmt.Println("║                                                                       ║")
-						fmt.Println("║ OTHER:                                                                ║")
-						fmt.Println("║   help                - Show detailed help                            ║")
-						fmt.Println("║   exit                - Exit the program                              ║")
-						fmt.Println("╚═══════════════════════════════════════════════════════════════════════╝")
-						fmt.Print("\nEnter command: ")
-						var command string
-						_, err := fmt.Scanln(&command)
+						printMenu()
+						command, err := readCommand()
 						if err != nil {
-							fmt.Println("failed to read command, try again:", err)
+							fmt.Println(err)
 							continue
 						}
 						switch command {
 						case "getblockheader":
-							var index int
-							fmt.Println("Please enter block index:")
-							_, err := fmt.Scanln(&index)
+							block, index, err := getBlockByIndex(bch, "Please enter block index:")
 							if err != nil {
-								fmt.Println("failed to read index, try again:", err)
-								continue
-							}
-							maxHeight := bch.Len()
-							if err := validateBlockIndex(index, maxHeight); err != nil {
 								fmt.Printf("Invalid block index: %v\n", err)
 								continue
 							}
-							block, err := bch.GetBlockByIndex(index)
-							if err != nil {
-								fmt.Println("Error:", err)
-								continue
-							}
-							headBytes, err := json.MarshalIndent(block.Header, "", "  ")
-							if err != nil {
+							headBytes, err := marshalJSON(block.Header, func() {
 								fmt.Printf("Block Header at index %d: %+v\n", index, block.Header)
+							})
+							if err != nil {
 								continue
 							}
 							fmt.Printf("Block Header at index %d:\n%s\n", index, string(headBytes))
@@ -158,140 +307,63 @@ func main() {
 							height := bch.Len()
 							fmt.Printf("Current blockchain height: %d\n", height)
 						case "stats":
-							blocks := bch.Blocks()
-							totalTxs := 0
-							totalDifficulty := uint32(0)
-							for _, block := range blocks {
-								body := block.Body
-								txs := body.Transactions
-								totalTxs += len(txs)
-								header := block.Header
-								totalDifficulty += header.Difficulty
-							}
-							avgTxPerBlock := 0.0
-							if len(blocks) > 0 {
-								avgTxPerBlock = float64(totalTxs) / float64(len(blocks))
-							}
-
+							totalBlocks, totalTxs, totalUsers, avgTxPerBlock, version, difficulty := calculateStats(bch, users, cfg)
 							fmt.Println("\n╔═══════════════════════════════════════════════════════════════╗")
 							fmt.Println("║                   BLOCKCHAIN STATISTICS                       ║")
 							fmt.Println("╠═══════════════════════════════════════════════════════════════╣")
-							fmt.Printf("║ Total Blocks:              %34d ║\n", len(blocks))
+							fmt.Printf("║ Total Blocks:              %34d ║\n", totalBlocks)
 							fmt.Printf("║ Total Transactions:        %34d ║\n", totalTxs)
 							fmt.Printf("║ Avg Transactions/Block:    %34.2f ║\n", avgTxPerBlock)
-							fmt.Printf("║ Total Users:               %34d ║\n", len(users))
-							fmt.Printf("║ Current Version:           %34d ║\n", cfg.Version)
-							fmt.Printf("║ Current Difficulty:        %34d ║\n", cfg.Difficulty)
+							fmt.Printf("║ Total Users:               %34d ║\n", totalUsers)
+							fmt.Printf("║ Current Version:           %34d ║\n", version)
+							fmt.Printf("║ Current Difficulty:        %34d ║\n", difficulty)
 							fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
 						case "validatechain":
-							fmt.Println("Validating blockchain...")
-							valid := true
-							blocks := bch.Blocks()
-							for i := 1; i < len(blocks); i++ {
-								prevBlock := blocks[i-1]
-								currentBlock := blocks[i]
-
-								prevHash := bch.CalculateHash(prevBlock)
-
-								currentHeader := currentBlock.Header
-								if prevHash != currentHeader.PrevHash {
-									fmt.Printf("❌ Block %d: Previous hash mismatch!\n", i)
-									valid = false
-								}
-
-								currentHash := bch.CalculateHash(currentBlock)
-
-								if !blockchain.IsHashValid(currentHash, currentHeader.Difficulty) {
-									fmt.Printf("❌ Block %d: Hash doesn't meet difficulty requirements!\n", i)
-									valid = false
-								}
-							}
-
-							if valid {
-								fmt.Println("✅ Blockchain is valid!")
-							} else {
-								fmt.Println("❌ Blockchain validation failed!")
-							}
+							validateChain(bch)
 						case "getblock":
-							var index int
-							fmt.Println("Please enter block index:")
-							_, err := fmt.Scanln(&index)
+							block, index, err := getBlockByIndex(bch, "Please enter block index:")
 							if err != nil {
-								fmt.Println("failed to read index, try again:", err)
-								continue
-							}
-							maxHeight := bch.Len()
-							if err := validateBlockIndex(index, maxHeight); err != nil {
 								fmt.Printf("Invalid block index: %v\n", err)
 								continue
 							}
-							block, err := bch.GetBlockByIndex(index)
-							if err != nil {
-								fmt.Println("Error:", err)
-								continue
-							}
-							blockBytes, err := json.MarshalIndent(block, "", "  ")
-							if err != nil {
+							blockBytes, err := marshalJSON(block, func() {
 								fmt.Printf("Block at index %d: %+v\n", index, block)
+							})
+							if err != nil {
 								continue
 							}
 							fmt.Printf("Block at index %d:\n%s\n", index, string(blockBytes))
 						case "getblockhash":
-							var index int
-							fmt.Println("Please enter block index:")
-							_, err := fmt.Scanln(&index)
+							block, index, err := getBlockByIndex(bch, "Please enter block index:")
 							if err != nil {
-								fmt.Println("failed to read index, try again:", err)
-								continue
-							}
-							maxHeight := bch.Len()
-							if err := validateBlockIndex(index, maxHeight); err != nil {
 								fmt.Printf("Invalid block index: %v\n", err)
 								continue
 							}
-							block, err := bch.GetBlockByIndex(index)
-							if err != nil {
-								fmt.Println("Error:", err)
-								continue
-							}
 							hash := bch.CalculateHash(block)
-
 							fmt.Printf("Block Hash at index %d: %x\n", index, hash)
 						case "mineblocks":
-							var numBlocks int
-							fmt.Println("Please enter number of blocks to mine concurrently:")
-							_, err := fmt.Scanln(&numBlocks)
+							numBlocks, err := readInt("Please enter number of blocks to mine concurrently:", func(v int) error {
+								return validatePositiveInt(v, "number of blocks")
+							})
 							if err != nil {
-								fmt.Println("failed to read number, try again:", err)
-								continue
-							}
-							if err := validatePositiveInt(numBlocks, "number of blocks"); err != nil {
 								fmt.Printf("Invalid input: %v\n", err)
 								continue
 							}
-							var numTxs int
-							fmt.Println("Please enter number of transactions per block:")
-							_, err = fmt.Scanln(&numTxs)
+							numTxs, err := readInt("Please enter number of transactions per block:", func(v int) error {
+								return validatePositiveInt(v, "number of transactions")
+							})
 							if err != nil {
-								fmt.Println("failed to read number, try again:", err)
-								continue
-							}
-							if err := validatePositiveInt(numTxs, "number of transactions"); err != nil {
 								fmt.Printf("Invalid input: %v\n", err)
 								continue
 							}
-							var minTxValue int
-							fmt.Println("Please enter minimum transaction value:")
-							_, err = fmt.Scanln(&minTxValue)
+							minTxValue, err := readInt("Please enter minimum transaction value:", nil)
 							if err != nil {
-								fmt.Println("failed to read number, try again:", err)
+								fmt.Printf("Invalid input: %v\n", err)
 								continue
 							}
-							var maxTxValue int
-							fmt.Println("Please enter maximum transaction value:")
-							_, err = fmt.Scanln(&maxTxValue)
+							maxTxValue, err := readInt("Please enter maximum transaction value:", nil)
 							if err != nil {
-								fmt.Println("failed to read number, try again:", err)
+								fmt.Printf("Invalid input: %v\n", err)
 								continue
 							}
 							if err := validateTransactionValueRange(minTxValue, maxTxValue); err != nil {
@@ -309,68 +381,28 @@ func main() {
 							config.Version = cfg.Version
 							config.Difficulty = cfg.Difficulty
 
-							var numBlocks int
-							fmt.Println("Please enter number of blocks to mine:")
-							_, err := fmt.Scanln(&numBlocks)
-							if err != nil {
-								fmt.Println("failed to read number, using default (1)")
-								numBlocks = 1
-							} else if err := validatePositiveInt(numBlocks, "number of blocks"); err != nil {
-								fmt.Printf("Invalid input: %v, using default (1)\n", err)
-								numBlocks = 1
-							}
+							numBlocks, _ := readIntWithDefault("Please enter number of blocks to mine:", 1, func(v int) error {
+								return validatePositiveInt(v, "number of blocks")
+							})
 							config.BlockCount = numBlocks
 
-							var numTxs int
-							fmt.Println("Please enter number of transactions per candidate block (default: 100):")
-							_, err = fmt.Scanln(&numTxs)
-							if err != nil {
-								fmt.Println("using default (100)")
-								numTxs = 100
-							} else if err := validatePositiveInt(numTxs, "number of transactions"); err != nil {
-								fmt.Printf("Invalid input: %v, using default (100)\n", err)
-								numTxs = 100
-							}
+							numTxs, _ := readIntWithDefault("Please enter number of transactions per candidate block (default: 100):", 100, func(v int) error {
+								return validatePositiveInt(v, "number of transactions")
+							})
 							config.TxCount = numTxs
 
-							var candidateCount int
-							fmt.Println("Please enter number of candidate blocks to generate (default: 5):")
-							_, err = fmt.Scanln(&candidateCount)
-							if err != nil {
-								fmt.Println("using default (5)")
-								candidateCount = 5
-							} else if err := validatePositiveInt(candidateCount, "number of candidates"); err != nil {
-								fmt.Printf("Invalid input: %v, using default (5)\n", err)
-								candidateCount = 5
-							}
+							candidateCount, _ := readIntWithDefault("Please enter number of candidate blocks to generate (default: 5):", 5, func(v int) error {
+								return validatePositiveInt(v, "number of candidates")
+							})
 							config.CandidateCount = candidateCount
 
-							var timeLimitSeconds int
-							fmt.Println("Please enter initial time limit in seconds (default: 5):")
-							_, err = fmt.Scanln(&timeLimitSeconds)
-							if err != nil {
-								fmt.Println("using default (5 seconds)")
-								timeLimitSeconds = 5
-							} else if err := validatePositiveInt(timeLimitSeconds, "time limit"); err != nil {
-								fmt.Printf("Invalid input: %v, using default (5 seconds)\n", err)
-								timeLimitSeconds = 5
-							}
+							timeLimitSeconds, _ := readIntWithDefault("Please enter initial time limit in seconds (default: 5):", 5, func(v int) error {
+								return validatePositiveInt(v, "time limit")
+							})
 							config.InitialTimeLimit = time.Duration(timeLimitSeconds) * time.Second
 
-							var minTxValue int
-							fmt.Println("Please enter minimum transaction value (default: 1):")
-							_, err = fmt.Scanln(&minTxValue)
-							if err != nil {
-								fmt.Println("using default (1)")
-								minTxValue = 1
-							}
-							var maxTxValue int
-							fmt.Println("Please enter maximum transaction value (default: 1000):")
-							_, err = fmt.Scanln(&maxTxValue)
-							if err != nil {
-								fmt.Println("using default (1000)")
-								maxTxValue = 1000
-							}
+							minTxValue, _ := readIntWithDefault("Please enter minimum transaction value (default: 1):", 1, nil)
+							maxTxValue, _ := readIntWithDefault("Please enter maximum transaction value (default: 1000):", 1000, nil)
 							if err := validateTransactionValueRange(minTxValue, maxTxValue); err != nil {
 								fmt.Printf("Invalid transaction value range: %v, using defaults\n", err)
 								minTxValue = 1
@@ -384,105 +416,43 @@ func main() {
 								config.BlockCount, config.CandidateCount, config.TxCount, config.InitialTimeLimit)
 
 							ctx := context.Background()
-							err = bch.MineBlocksDecentralized(ctx, users, config)
+							err := bch.MineBlocksDecentralized(ctx, users, config)
 							if err != nil {
 								fmt.Println("Error in decentralized mining:", err)
 							} else {
 								fmt.Println("Decentralized mining completed successfully!")
 							}
 						case "getblocktransactions":
-							var index int
-							fmt.Println("Please enter block index:")
-							_, err := fmt.Scanln(&index)
+							block, index, err := getBlockByIndex(bch, "Please enter block index:")
 							if err != nil {
-								fmt.Println("failed to read index, try again:", err)
-								continue
-							}
-							maxHeight := bch.Len()
-							if err := validateBlockIndex(index, maxHeight); err != nil {
 								fmt.Printf("Invalid block index: %v\n", err)
 								continue
 							}
-							block, err := bch.GetBlockByIndex(index)
+							bodyBytes, err := marshalJSON(block.Body.Transactions, func() {
+								fmt.Printf("Block Transactions at index %d: %+v\n", index, block.Body.Transactions)
+							})
 							if err != nil {
-								fmt.Println("Error:", err)
-								continue
-							}
-							body := block.Body
-							txs := body.Transactions
-							bodyBytes, err := json.MarshalIndent(txs, "", "  ")
-							if err != nil {
-								fmt.Printf("Block Transactions at index %d: %+v\n", index, bodyBytes)
 								continue
 							}
 							fmt.Printf("Block Transactions at index %d:\n%s\n", index, string(bodyBytes))
 						case "getuserbalance":
-							var input string
-							fmt.Println("Please enter user name, public key (hex), or public address (hex):")
-							_, err := fmt.Scanln(&input)
+							input, err := readString("Please enter user name, public key (hex), or public address (hex):")
 							if err != nil {
-								fmt.Println("failed to read input, try again:", err)
+								fmt.Println(err)
 								continue
 							}
 
-							var user domain.User
-							var found bool
-							var address domain.PublicAddress
-
-							for i := range users {
-								if users[i].Name == input {
-									user = users[i]
-									found = true
-									address = user.PublicAddress
-									break
-								}
-							}
-
-							if !found {
-								hexBytes, err := hex.DecodeString(input)
-								if err != nil {
-									fmt.Println("Error: input is neither a valid user name nor a valid hex string")
+							user, address, found, err := findUserByInput(input, users)
+							if err != nil {
+								fmt.Println("Error:", err)
+								if err.Error() == "input is neither a valid user name nor a valid hex string" {
 									fmt.Println("Hint: Try using a user name, public key (66 hex chars), or public address (40 hex chars) from the 'balance' command")
-									continue
-								}
-
-								if len(hexBytes) == 20 {
-									copy(address[:], hexBytes)
-									// Try to find user by public address
-									for i := range users {
-										if users[i].PublicAddress == address {
-											user = users[i]
-											found = true
-											address = user.PublicAddress
-											break
-										}
-									}
-								} else if len(hexBytes) == 33 {
-
-									var pubKey domain.PublicKey
-									copy(pubKey[:], hexBytes)
-
-									for i := range users {
-										if users[i].PublicKey == pubKey {
-											user = users[i]
-											found = true
-											address = user.PublicAddress
-											break
-										}
-									}
-
-									if !found {
-										fmt.Println("Error: no user found with that public key")
-										fmt.Println("Hint: Use the 'balance' command to see all users and their public keys")
-										continue
-									}
+								} else if err.Error() == "no user found with that public key" {
+									fmt.Println("Hint: Use the 'balance' command to see all users and their public keys")
 								} else {
-									fmt.Println("Error: hex input must be either 40 characters (public address) or 66 characters (public key)")
 									fmt.Println("Hint: Public address = 40 hex chars, Public key = 66 hex chars")
-									continue
 								}
-							} else {
-								address = user.PublicAddress
+								continue
 							}
 
 							balance := bch.GetUserBalance(address)
@@ -506,7 +476,7 @@ func main() {
 							for _, blk := range bch.Blocks() {
 								headers = append(headers, blk.Header)
 							}
-							headersBytes, err := json.MarshalIndent(headers, "", "  ")
+							headersBytes, err := marshalJSON(headers, nil)
 							if err != nil {
 								fmt.Println("Error marshaling headers:", err)
 								continue
@@ -550,17 +520,9 @@ func main() {
 								}
 							}
 
-							var topN int
-							fmt.Println("How many top users to show?")
-							_, err := fmt.Scanln(&topN)
-							if err != nil {
-								fmt.Println("failed to read number, using default (10)")
-								topN = 10
-							} else if err := validatePositiveInt(topN, "number of top users"); err != nil {
-								fmt.Printf("Invalid input: %v, using default (10)\n", err)
-								topN = 10
-							}
-
+							topN, _ := readIntWithDefault("How many top users to show?", 10, func(v int) error {
+								return validatePositiveInt(v, "number of top users")
+							})
 							if topN > len(userBalances) {
 								topN = len(userBalances)
 							}
@@ -578,70 +540,23 @@ func main() {
 							}
 							fmt.Println("╚══════╩═════════════════════════════╩═══════════════╩══════════════════════════════════════╝")
 						case "getutxos":
-							var input string
-							fmt.Println("Please enter user name, public key (hex), or public address (hex):")
-							_, err := fmt.Scanln(&input)
+							input, err := readString("Please enter user name, public key (hex), or public address (hex):")
 							if err != nil {
-								fmt.Println("failed to read input, try again:", err)
+								fmt.Println(err)
 								continue
 							}
 
-							var user domain.User
-							var found bool
-							var address domain.PublicAddress
-
-							for i := range users {
-								if users[i].Name == input {
-									user = users[i]
-									found = true
-									address = user.PublicAddress
-									break
-								}
-							}
-
-							if !found {
-								hexBytes, err := hex.DecodeString(input)
-								if err != nil {
-									fmt.Println("Error: input is neither a valid user name nor a valid hex string")
+							user, address, found, err := findUserByInput(input, users)
+							if err != nil {
+								fmt.Println("Error:", err)
+								if err.Error() == "input is neither a valid user name nor a valid hex string" {
 									fmt.Println("Hint: Try using a user name, public key (66 hex chars), or public address (40 hex chars) from the 'balance' command")
-									continue
-								}
-
-								if len(hexBytes) == 20 {
-									copy(address[:], hexBytes)
-									for i := range users {
-										if users[i].PublicAddress == address {
-											user = users[i]
-											found = true
-											break
-										}
-									}
-								} else if len(hexBytes) == 33 {
-									var pubKey domain.PublicKey
-									copy(pubKey[:], hexBytes)
-
-									for i := range users {
-										if users[i].PublicKey == pubKey {
-											user = users[i]
-											found = true
-											address = user.PublicAddress
-											break
-										}
-									}
-
-									if !found {
-										fmt.Println("Error: no user found with that public key")
-										fmt.Println("Hint: Use the 'balance' command to see all users and their public keys")
-										continue
-									}
+								} else if err.Error() == "no user found with that public key" {
+									fmt.Println("Hint: Use the 'balance' command to see all users and their public keys")
 								} else {
-									fmt.Println("Error: hex input must be either 40 characters (public address) or 66 characters (public key)")
 									fmt.Println("Hint: Public address = 40 hex chars, Public key = 66 hex chars")
-									continue
 								}
-							} else {
-
-								address = user.PublicAddress
+								continue
 							}
 
 							utxos := bch.GetUTXOsForAddress(address)
