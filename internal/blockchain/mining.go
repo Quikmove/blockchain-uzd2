@@ -297,7 +297,7 @@ func (bch *Blockchain) MineBlocksDecentralized(
 }
 func MineBlockConcurrently(ctx context.Context, workerId int, bch *Blockchain, body d.Body, version, difficulty uint32, mineChan chan blockResult) error {
 	errChan := make(chan error, 1)
-	go func(errChan chan error) {
+	go func() {
 		latestBlock, err := bch.GetLatestBlock()
 		if err != nil {
 			errChan <- err
@@ -310,21 +310,19 @@ func MineBlockConcurrently(ctx context.Context, workerId int, bch *Blockchain, b
 			errChan <- err
 			return
 		}
-		errChan <- nil
 		result := blockResult{block: *d.NewBlock(*header, body), workerId: workerId}
 		select {
-
 		case mineChan <- result:
+			errChan <- nil
 		case <-ctx.Done():
-			return
+			errChan <- ctx.Err()
 		}
-	}(errChan)
+	}()
 
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case err := <-errChan:
-		close(errChan)
 		return err
 	}
 }
