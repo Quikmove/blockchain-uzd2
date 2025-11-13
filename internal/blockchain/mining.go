@@ -159,33 +159,34 @@ func FindValidNonce(ctx context.Context, header *d.Header, hasher c.Hasher) (uin
 }
 
 type DecentralizedMiningConfig struct {
-	BlockCount          int
-	TxCount             int
-	CandidateCount      int
-	InitialTimeLimit    time.Duration
-	InitialAttemptLimit uint64
-	TimeMultiplier      float64
-	AttemptMultiplier   float64
-	Low                 int
-	High                int
-	Version             uint32
-	Difficulty          uint32
+	BlockCount       int
+	TxCount          int
+	CandidateCount   int
+	InitialTimeLimit time.Duration
+	TimeMultiplier   float64
+	Low              int
+	High             int
+	Version          uint32
+	Difficulty       uint32
 }
 
 func DefaultDecentralizedMiningConfig() DecentralizedMiningConfig {
 	return DecentralizedMiningConfig{
-		BlockCount:          1,
-		TxCount:             100,
-		CandidateCount:      5,
-		InitialTimeLimit:    5 * time.Second,
-		InitialAttemptLimit: 0,
-		TimeMultiplier:      2.0,
-		AttemptMultiplier:   2.0,
-		Low:                 1,
-		High:                1000,
-		Version:             1,
-		Difficulty:          1,
+		BlockCount:       1,
+		TxCount:          100,
+		CandidateCount:   5,
+		InitialTimeLimit: 5 * time.Second,
+		TimeMultiplier:   2.0,
+		Low:              1,
+		High:             1000,
+		Version:          1,
+		Difficulty:       1,
 	}
+}
+
+type blockResult struct {
+	block    d.Block
+	workerId int
 }
 
 func (bch *Blockchain) MineBlocksDecentralized(
@@ -203,7 +204,6 @@ func (bch *Blockchain) MineBlocksDecentralized(
 		}
 
 		timeLimit := config.InitialTimeLimit
-		attemptLimit := config.InitialAttemptLimit
 		miningSuccess := false
 
 		for !miningSuccess {
@@ -231,7 +231,7 @@ func (bch *Blockchain) MineBlocksDecentralized(
 			}
 
 			if len(candidateBlocks) == 0 {
-				return errors.New("could not generate any candidate blocks")
+				return d.ErrMiningCanceled
 			}
 
 			roundCtx, cancelRound := context.WithCancel(parentCtx)
@@ -242,94 +242,37 @@ func (bch *Blockchain) MineBlocksDecentralized(
 				timeoutCtx, timeoutCancel = context.WithTimeout(roundCtx, timeLimit)
 			}
 
-			blockChan := make(chan d.Block, 1)
+			blockResultChan := make(chan blockResult, 1)
+
 			var wg sync.WaitGroup
 
 			for i, body := range candidateBlocks {
 				wg.Add(1)
-				go func(candidateID int, candidateBody d.Body) {
+				go func(workerId int, b d.Body) {
 					defer wg.Done()
-
-					latestBlock, err := bch.GetLatestBlock()
-					if err != nil {
-						return
-					}
-
-					var newHeader d.Header
-					newHeader.Version = config.Version
-					newHeader.Timestamp = uint32(time.Now().Unix())
-					newHeader.PrevHash = bch.CalculateHash(latestBlock)
-					newHeader.MerkleRoot = MerkleRootHash(candidateBody, bch.hasher)
-					newHeader.Difficulty = config.Difficulty
-
-					var nonce uint32
-					var attempts uint64
-
-					for {
-						select {
-						case <-roundCtx.Done():
-							return
-						case <-timeoutCtx.Done():
-							return
-						default:
-						}
-
-						if attemptLimit > 0 && attempts >= attemptLimit {
-							return
-						}
-
-						newHeader.Nonce = nonce
-						hash := bch.hasher.Hash(newHeader.Serialize())
-						if IsHashValid(hash, config.Difficulty) {
-							currentLatestBlock, err := bch.GetLatestBlock()
-							if err != nil {
-								return
-							}
-							currentLatestHash := bch.CalculateHash(currentLatestBlock)
-
-							if currentLatestHash != newHeader.PrevHash {
-								return
-							}
-
-							newBlock := d.Block{
-								Header: newHeader,
-								Body:   candidateBody,
-							}
-
-							err = bch.AddBlock(newBlock)
-							if err != nil {
-								return
-							}
-
-							select {
-							case blockChan <- newBlock:
-							default:
-							}
-							return
-						}
-
-						nonce++
-						attempts++
-
-						if nonce == ^uint32(0) {
-							return
-						}
-					}
+					_ = MineBlockConcurrently(timeoutCtx, workerId, bch, b, config.Version, config.Difficulty, blockResultChan)
 				}(i, body)
 			}
 
 			select {
-			case blk := <-blockChan:
+			case blkResult := <-blockResultChan:
 				cancelRound()
 				if timeoutCancel != nil {
 					timeoutCancel()
 				}
+
 				wg.Wait()
 
+				err := bch.AddBlock(blkResult.block)
+				if err != nil {
+					log.Printf("Round %d: Failed to add block: %v", round+1, err)
+					timeLimit = time.Duration(float64(timeLimit) * config.TimeMultiplier)
+					continue
+				}
 				blockIndex := bch.Len() - 1
-				blockTxs := blk.Body.Transactions
-				log.Printf("Round %d: Successfully mined block at index %d (block #%d) with %d transactions and nonce %d\n",
-					round+1, blockIndex, round+1, len(blockTxs), blk.Header.Nonce)
+				blockTxs := blkResult.block.Body.Transactions
+				log.Printf("Round %d: Successfully mined block at index %d (block #%d) with %d transactions and nonce %d by worker %d\n",
+					round+1, blockIndex, round+1, len(blockTxs), blkResult.block.Header.Nonce, blkResult.workerId)
 				miningSuccess = true
 			case <-timeoutCtx.Done():
 				cancelRound()
@@ -337,7 +280,6 @@ func (bch *Blockchain) MineBlocksDecentralized(
 					timeoutCancel()
 				}
 				wg.Wait()
-
 				timeLimit = time.Duration(float64(timeLimit) * config.TimeMultiplier)
 				log.Printf("Round %d: No block mined within time limit, retrying with increased time limit: %v", round+1, timeLimit)
 			case <-parentCtx.Done():
@@ -352,4 +294,37 @@ func (bch *Blockchain) MineBlocksDecentralized(
 	}
 
 	return nil
+}
+func MineBlockConcurrently(ctx context.Context, workerId int, bch *Blockchain, body d.Body, version, difficulty uint32, mineChan chan blockResult) error {
+	errChan := make(chan error, 1)
+	go func(errChan chan error) {
+		latestBlock, err := bch.GetLatestBlock()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		prevBlockHash := bch.CalculateHash(latestBlock)
+		header := d.NewHeader(version, uint32(time.Now().Unix()), prevBlockHash, MerkleRootHash(body, bch.hasher), difficulty, 0)
+		_, _, err = FindValidNonce(ctx, header, bch.hasher)
+		if err != nil {
+			errChan <- err
+			return
+		}
+		errChan <- nil
+		result := blockResult{block: *d.NewBlock(*header, body), workerId: workerId}
+		select {
+
+		case mineChan <- result:
+		case <-ctx.Done():
+			return
+		}
+	}(errChan)
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errChan:
+		close(errChan)
+		return err
+	}
 }
