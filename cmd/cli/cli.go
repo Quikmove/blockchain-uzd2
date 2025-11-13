@@ -114,9 +114,9 @@ func main() {
 						fmt.Println("║                                                                       ║")
 						fmt.Println("║ USER & BALANCE:                                                       ║")
 						fmt.Println("║   balance             - Show all user balances (table)                ║")
-						fmt.Println("║   getuserbalance      - Get balance by name or public key             ║")
+						fmt.Println("║   getuserbalance      - Get balance by name, public key, or address   ║")
 						fmt.Println("║   richlist            - Show top users by balance                     ║")
-						fmt.Println("║   getutxos            - Get UTXOs by name or public key               ║")
+						fmt.Println("║   getutxos            - Get UTXOs by name, public key, or address     ║")
 						fmt.Println("║                                                                       ║")
 						fmt.Println("║ OTHER:                                                                ║")
 						fmt.Println("║   help                - Show detailed help                            ║")
@@ -418,7 +418,7 @@ func main() {
 							fmt.Printf("Block Transactions at index %d:\n%s\n", index, string(bodyBytes))
 						case "getuserbalance":
 							var input string
-							fmt.Println("Please enter user name or public key (hex):")
+							fmt.Println("Please enter user name, public key (hex), or public address (hex):")
 							_, err := fmt.Scanln(&input)
 							if err != nil {
 								fmt.Println("failed to read input, try again:", err)
@@ -427,58 +427,79 @@ func main() {
 
 							var user domain.User
 							var found bool
+							var address domain.PublicAddress
 
 							for i := range users {
 								if users[i].Name == input {
 									user = users[i]
 									found = true
+									address = user.PublicAddress
 									break
 								}
 							}
 
 							if !found {
-								pubKeyBytes, err := hex.DecodeString(input)
+								hexBytes, err := hex.DecodeString(input)
 								if err != nil {
-									fmt.Println("Error: input is neither a valid user name nor a valid hex public key")
-									fmt.Println("Hint: Try using a user name from the 'balance' command")
+									fmt.Println("Error: input is neither a valid user name nor a valid hex string")
+									fmt.Println("Hint: Try using a user name, public key (66 hex chars), or public address (40 hex chars) from the 'balance' command")
 									continue
 								}
 
-								if len(pubKeyBytes) != 33 {
-									fmt.Println("Error: public key must be exactly 33 bytes (66 hex characters)")
-									continue
-								}
-
-								var pubKey domain.PublicKey
-								copy(pubKey[:], pubKeyBytes)
-
-								for i := range users {
-									if users[i].PublicKey == pubKey {
-										user = users[i]
-										found = true
-										break
+								if len(hexBytes) == 20 {
+									copy(address[:], hexBytes)
+									// Try to find user by public address
+									for i := range users {
+										if users[i].PublicAddress == address {
+											user = users[i]
+											found = true
+											address = user.PublicAddress
+											break
+										}
 									}
-								}
+								} else if len(hexBytes) == 33 {
 
-								if !found {
-									fmt.Println("Error: no user found with that public key")
-									fmt.Println("Hint: Use the 'balance' command to see all users and their public keys")
+									var pubKey domain.PublicKey
+									copy(pubKey[:], hexBytes)
+
+									for i := range users {
+										if users[i].PublicKey == pubKey {
+											user = users[i]
+											found = true
+											address = user.PublicAddress
+											break
+										}
+									}
+
+									if !found {
+										fmt.Println("Error: no user found with that public key")
+										fmt.Println("Hint: Use the 'balance' command to see all users and their public keys")
+										continue
+									}
+								} else {
+									fmt.Println("Error: hex input must be either 40 characters (public address) or 66 characters (public key)")
+									fmt.Println("Hint: Public address = 40 hex chars, Public key = 66 hex chars")
 									continue
 								}
+							} else {
+								address = user.PublicAddress
 							}
 
-							if !found {
-								fmt.Println("User not found")
-								continue
-							}
-
-							balance := bch.GetUserBalance(user.Address())
-							pubKeyHex := fmt.Sprintf("%x", user.PublicKey)
+							balance := bch.GetUserBalance(address)
+							addressHex := fmt.Sprintf("%x", address)
 
 							fmt.Println("\n╔═══════════════════════════════════════════════════════════════════════════════════════════╗")
-							fmt.Printf("║ User:       %-77s ║\n", user.Name)
+							if found {
+								fmt.Printf("║ User:       %-77s ║\n", user.Name)
+							} else {
+								fmt.Printf("║ User:       %-77s ║\n", "Unknown")
+							}
 							fmt.Printf("║ Balance:    %-77d ║\n", balance)
-							fmt.Printf("║ Public Key: %-77s ║\n", pubKeyHex)
+							fmt.Printf("║ Address:    %-77s ║\n", addressHex)
+							if found {
+								pubKeyHex := fmt.Sprintf("%x", user.PublicKey)
+								fmt.Printf("║ Public Key: %-77s ║\n", pubKeyHex)
+							}
 							fmt.Println("╚═══════════════════════════════════════════════════════════════════════════════════════════╝")
 						case "getallheaders":
 							headers := make([]domain.Header, 0, bch.Len())
@@ -558,7 +579,7 @@ func main() {
 							fmt.Println("╚══════╩═════════════════════════════╩═══════════════╩══════════════════════════════════════╝")
 						case "getutxos":
 							var input string
-							fmt.Println("Please enter user name or public key (hex):")
+							fmt.Println("Please enter user name, public key (hex), or public address (hex):")
 							_, err := fmt.Scanln(&input)
 							if err != nil {
 								fmt.Println("failed to read input, try again:", err)
@@ -567,62 +588,78 @@ func main() {
 
 							var user domain.User
 							var found bool
+							var address domain.PublicAddress
 
 							for i := range users {
 								if users[i].Name == input {
 									user = users[i]
 									found = true
+									address = user.PublicAddress
 									break
 								}
 							}
 
 							if !found {
-								pubKeyBytes, err := hex.DecodeString(input)
+								hexBytes, err := hex.DecodeString(input)
 								if err != nil {
-									fmt.Println("Error: input is neither a valid user name nor a valid hex public key")
-									fmt.Println("Hint: Try using a user name from the 'balance' command")
+									fmt.Println("Error: input is neither a valid user name nor a valid hex string")
+									fmt.Println("Hint: Try using a user name, public key (66 hex chars), or public address (40 hex chars) from the 'balance' command")
 									continue
 								}
 
-								if len(pubKeyBytes) != 33 {
-									fmt.Println("Error: public key must be exactly 33 bytes (66 hex characters)")
-									continue
-								}
-
-								var pubKey domain.PublicKey
-								copy(pubKey[:], pubKeyBytes)
-
-								for i := range users {
-									if users[i].PublicKey == pubKey {
-										user = users[i]
-										found = true
-										break
+								if len(hexBytes) == 20 {
+									copy(address[:], hexBytes)
+									for i := range users {
+										if users[i].PublicAddress == address {
+											user = users[i]
+											found = true
+											break
+										}
 									}
-								}
+								} else if len(hexBytes) == 33 {
+									var pubKey domain.PublicKey
+									copy(pubKey[:], hexBytes)
 
-								if !found {
-									fmt.Println("Error: no user found with that public key")
-									fmt.Println("Hint: Use the 'balance' command to see all users and their public keys")
+									for i := range users {
+										if users[i].PublicKey == pubKey {
+											user = users[i]
+											found = true
+											address = user.PublicAddress
+											break
+										}
+									}
+
+									if !found {
+										fmt.Println("Error: no user found with that public key")
+										fmt.Println("Hint: Use the 'balance' command to see all users and their public keys")
+										continue
+									}
+								} else {
+									fmt.Println("Error: hex input must be either 40 characters (public address) or 66 characters (public key)")
+									fmt.Println("Hint: Public address = 40 hex chars, Public key = 66 hex chars")
 									continue
 								}
+							} else {
+
+								address = user.PublicAddress
 							}
 
-							if !found {
-								fmt.Println("User not found")
-								continue
+							utxos := bch.GetUTXOsForAddress(address)
+							addressHex := fmt.Sprintf("%x", address)
+							displayName := addressHex
+							if found {
+								displayName = user.Name
 							}
-
-							utxos := bch.GetUTXOsForAddress(user.PublicAddress)
 
 							fmt.Printf("\n╔══════════════════════════════════════════════════════════════════════════════════════════╗\n")
-							fmt.Printf("║                            UTXOs for %-51s ║\n", user.Name)
+							fmt.Printf("║                            UTXOs for %-51s ║\n", displayName)
 							fmt.Println("╠══════╦═══════════════╦═══════════════════════════════════════════════════════════════════╣")
 							fmt.Println("║  #   ║     VALUE     ║                    TRANSACTION ID:INDEX                           ║")
 							fmt.Println("╠══════╬═══════════════╬═══════════════════════════════════════════════════════════════════╣")
 
 							totalValue := uint32(0)
 							if len(utxos) == 0 {
-								fmt.Println("║                         No UTXOs found for this user                                      ║")
+								fmt.Println("║                         No UTXOs found for this address                                    ║")
 							} else {
 								for i, utxo := range utxos {
 									txIDHex := fmt.Sprintf("%x", utxo.Outpoint.TxID)
@@ -644,8 +681,8 @@ func main() {
 							fmt.Println("║ MINING COMMANDS:                                                                          ║")
 							fmt.Println("║   mineblocks - Mines new blocks with random transactions between users                    ║")
 							fmt.Println("║                Prompts for: number of blocks, transactions per block, min/max tx value    ║")
-							fmt.Println("║   simulatedecentralizedmining - Simulates decentralized mining with multiple candidates ║")
-							fmt.Println("║                Generates multiple candidate blocks and mines them with time limits         ║")
+							fmt.Println("║   simulatedecentralizedmining - Simulates decentralized mining with multiple candidates   ║")
+							fmt.Println("║                Generates multiple candidate blocks and mines them with time limits        ║")
 							fmt.Println("║                                                                                           ║")
 							fmt.Println("║ BLOCKCHAIN INFO:                                                                          ║")
 							fmt.Println("║   height     - Displays the current height (number of blocks) in the chain                ║")
@@ -661,9 +698,9 @@ func main() {
 							fmt.Println("║                                                                                           ║")
 							fmt.Println("║ USER & BALANCE:                                                                           ║")
 							fmt.Println("║   balance    - Show all users with their balances in a formatted table                    ║")
-							fmt.Println("║   getuserbalance - Get balance for a user (by name or public key)                         ║")
+							fmt.Println("║   getuserbalance - Get balance (by name, public key, or public address)                   ║")
 							fmt.Println("║   richlist   - Show top N users ranked by balance                                         ║")
-							fmt.Println("║   getutxos   - Show all UTXOs for a user (by name or public key)                          ║")
+							fmt.Println("║   getutxos   - Show all UTXOs (by name, public key, or public address)                    ║")
 							fmt.Println("║                                                                                           ║")
 							fmt.Println("║                                                                                           ║")
 							fmt.Println("╚═══════════════════════════════════════════════════════════════════════════════════════════╝")
