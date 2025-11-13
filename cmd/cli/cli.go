@@ -28,7 +28,7 @@ func validateBlockIndex(index int, maxHeight int) error {
 
 func validatePositiveInt(value int, fieldName string) error {
 	if value <= 0 {
-		return errors.New("value must be positive")
+		return fmt.Errorf("%s must be positive", fieldName)
 	}
 	return nil
 }
